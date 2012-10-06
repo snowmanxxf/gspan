@@ -1,4 +1,7 @@
 
+#include "gspan.hpp"
+#include "graph_ops.hpp"
+
 #include <stdlib.h>
 #include <sstream>
 #include <fstream>
@@ -6,8 +9,6 @@
 #include <boost/graph/graphviz.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 
-#include "gspan.hpp"
-#include "graph_ops.hpp"
 
 using namespace graph_alg;
 
@@ -29,6 +30,6 @@ int main(int argc, char** argv)
 
     std::cout << "is_min: " << is_min(dfsc, ops) << std::endl;
 
-    //boost::ptr_vector<GraphOps::graph_t> gr;    
-    //gspan(gr.begin(), gr.end(), 2, ops, result);
+    boost::ptr_vector<GraphOps::graph_t> gr;    
+    gspan(gr.begin(), gr.end(), 2, ops, result);
 }

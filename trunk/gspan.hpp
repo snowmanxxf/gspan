@@ -1,17 +1,16 @@
 #ifndef GSPAN_H_
 #define GSPAN_H_
 
+#include <cassert>
 #include <vector>
 #include <deque>
 #include <list>
 #include <map>
 #include <set>
 #include <memory>
-#include <limits>
-#include <utility>
-#include <iterator>
-#include <algorithm>
 #include <iostream>
+
+#include <boost/graph/graph_traits.hpp>
 #include <boost/foreach.hpp>
 
 #define BR asm("int $3;")
@@ -617,46 +616,59 @@ namespace graph_alg
     // *****************************************************************************
     //                          Maps
     // *****************************************************************************
-    template<class K1, class T>
-    struct Map1 : public std::map<K1, T>
-    {
-	typedef std::map<K1, T> Base;
-	typedef typename Base::const_iterator M1_iterator;
-    };
 
-    template<class K1, class K2, class T>
-    struct Map2 : public std::map<K1, std::map<K2, T> >
+    template<class M1>
+    inline typename M1::mapped_type&
+    getval(M1& mp1key, const typename M1::key_type& k1)
     {
-	typedef std::map<K1, std::map<K2, T> > Base;
-	typedef typename Base::const_iterator M1_iterator;
-	typedef typename Base::mapped_type::const_iterator M2_iterator;
-    };
+	typedef typename M1::value_type value_type;
+	return mp1key.insert(value_type(k1, typename M1::mapped_type())).first->second;
+    }
 
-    template<class K1, class K2, class K3, class T>
-    struct Map3 : public std::map<K1, std::map<K2, std::map<K1, T> > >
+    template<class M2>
+    inline typename M2::mapped_type::mapped_type&
+    getval(M2& mp2key,
+	   const typename M2::key_type& k1,
+	   const typename M2::mapped_type::key_type& k2,
+	   const typename M2::mapped_type::key_compare& c2)
     {
-	typedef std::map<K1, std::map<K2, std::map<K1, T> > > Base;
-	typedef typename Base::const_iterator				M1_iterator;
-	typedef typename Base::const_reverse_iterator			M1_riterator;
-	typedef typename Base::mapped_type::const_iterator		M2_iterator;
-	typedef typename Base::mapped_type::mapped_type::const_iterator M3_iterator;
-    };
+	typedef typename M2::value_type value_type;
+	return getval(mp2key.insert(value_type(k1, typename M2::mapped_type(c2))).first->second, k2);
+    }
 
 
-    template<class K1, class C1, class K2, class C2, class T>
-    struct Map2_
+    template<class M3>
+    inline typename M3::mapped_type::mapped_type::mapped_type&
+    getval(M3& mp3key,
+	   const typename M3::key_type& k1,
+	   const typename M3::mapped_type::key_type& k2,
+	   const typename M3::mapped_type::mapped_type::key_type& k3,
+	   const typename M3::mapped_type::key_compare& c2,
+	   const typename M3::mapped_type::mapped_type::key_compare& c3)
     {
-	typedef std::map<K2, T, C2> M1;
-	typedef std::map<K1, M1, C1> M2;
-	M2 m2_;
-	const C2& c2_;
+	typedef typename M3::value_type value_type;
+	return getval(mp3key.insert(value_type(k1, typename M3::mapped_type(c2))).first->second, k2, k3, c3);
+    }
+
+    
+    template<class GraphOps>    
+    class Vlabel_less_
+    {
+	const GraphOps& ops_;
     public:
-	Map2_(const C1& c1, const C2& c2) :m2_(c1), c2_(c2) {}
-	T& operator() (const K1& k1, const K2& k2)
-	    {
-		typename M2::iterator i = m2_.insert(std::pair<K1,M1>(k1, M1(c2_))).first;
-		return * i->second.insert(std::pair<K2,T>(k2, T())).first->second;
-	    }
+	explicit Vlabel_less_(const GraphOps& ops) :ops_(ops) {}
+	bool operator() (typename Traits1<GraphOps>::VLR vl1, typename Traits1<GraphOps>::VLR vl2) const
+	    { return ops_.vlabel_less(vl1, vl2); }
+    };
+
+    template<class GraphOps>    
+    class Elabel_less_
+    {
+	const GraphOps& ops_;
+    public:
+	explicit Elabel_less_(const GraphOps& ops) :ops_(ops) {}
+	bool operator() (typename Traits1<GraphOps>::ELR el1, typename Traits1<GraphOps>::ELR el2) const
+	    { return ops_.elabel_less(el1, el2); }
     };
 
 
@@ -664,32 +676,36 @@ namespace graph_alg
     //                          Traits3
     // *****************************************************************************
     template<class GraphOps>
-    struct Traits3 : public Traits2<GraphOps>
+    class Traits3 : public Traits2<GraphOps>
     {
+	// std::map wrapper without default constructor
+	template<class K, class C, class T>
+	struct map_ : public std::map<K,T,C> { explicit map_(const C& c) :std::map<K,T,C>(c) {} };
+    public:
+
+	typedef typename Traits1<GraphOps>::VI VI;
+	typedef typename Traits1<GraphOps>::VL VL;
+	typedef typename Traits1<GraphOps>::EL EL;
+
+	typedef std::less<VI> VI_less;
+	typedef Vlabel_less_<GraphOps> Vlabel_less;
+	typedef Elabel_less_<GraphOps> Elabel_less;
+
+	// ExtEdgeList maps
+	typedef typename Traits2<GraphOps>::ExtEdgeList         ExtEdgeList;
+	typedef map_<EL, Elabel_less, ExtEdgeList>		Map_EL_ExtEdgeList;
+	typedef map_<VL, Vlabel_less, ExtEdgeList>		Map_VL_ExtEdgeList;
+	typedef map_<EL, Elabel_less, Map_VL_ExtEdgeList>	Map_EL_VL_ExtEdgeList;
+	typedef map_<VI, VI_less,     Map_EL_ExtEdgeList>	Map_VI_EL_ExtEdgeList;
+	typedef map_<VI, VI_less,     Map_EL_VL_ExtEdgeList>	Map_VI_EL_VL_ExtEdgeList;
+
+	// Projected map
 	typedef Projected_<GraphOps> Projected;
-
-	typedef Map3<typename Traits1<GraphOps>::VL,
-		     typename Traits1<GraphOps>::EL,
-		     typename Traits1<GraphOps>::VL,
-		     Projected> Map_VL_EL_VL_P;
-	
-	typedef Map3<typename Traits1<GraphOps>::VI,
-		     typename Traits1<GraphOps>::EL,
-		     typename Traits1<GraphOps>::VL,
-		     typename Traits2<GraphOps>::ExtEdgeList> Map_VI_EL_VL_ExtEdges;
-	
-	typedef Map2<typename Traits1<GraphOps>::VI,
-		     typename Traits1<GraphOps>::EL,
-		     typename Traits2<GraphOps>::ExtEdgeList> Map_VI_EL_ExtEdges;
-
-	typedef Map2<typename Traits1<GraphOps>::EL,
-		     typename Traits1<GraphOps>::VL,
-		     typename Traits2<GraphOps>::ExtEdgeList> Map_EL_VL_ExtEdges;
-
-	typedef Map1<typename Traits1<GraphOps>::EL,
-		     typename Traits2<GraphOps>::ExtEdgeList> Map_EL_ExtEdges;
-	
+	typedef map_<VL, Vlabel_less,
+		     map_<EL, Elabel_less,
+			  map_<VL, Vlabel_less, Projected> > >  Map_VL_EL_VL_P;
     };
+
 
     // *****************************************************************************
     //                          gspan functions
@@ -714,6 +730,9 @@ namespace graph_alg
 		       const typename Traits3<GraphOps>::G& g,
 		       const GraphOps& ops)
     {
+	typename Traits3<GraphOps>::Vlabel_less vl_less(ops);
+	typename Traits3<GraphOps>::Elabel_less el_less(ops);
+
 	typedef typename Traits3<GraphOps>::SBG SBG;
 	typedef typename Traits3<GraphOps>::G   G;
 	typename boost::graph_traits<G>::vertex_iterator vi, viend;
@@ -726,10 +745,10 @@ namespace graph_alg
 		sbgs.push_back(SBG(&g));
 		SBG* sbg = &sbgs.back();
 		sbg->push(e);
-		typename Traits3<GraphOps>::VLR fromlab = ops.vilabel(e.vi_from, g);
-		typename Traits3<GraphOps>::VLR tolab   = ops.vilabel(e.vi_to, g);
-	        typename Traits3<GraphOps>::ELR elab    = ops.eilabel(e.ei, g);
-		m[fromlab][elab][tolab].push_back(sbg);
+		typename Traits3<GraphOps>::VLR vl_from = ops.vilabel(e.vi_from, g);
+		typename Traits3<GraphOps>::VLR vl_to   = ops.vilabel(e.vi_to, g);
+	        typename Traits3<GraphOps>::ELR el      = ops.eilabel(e.ei, g);
+		getval(m, vl_from, el, vl_to, el_less, vl_less).push_back(sbg);
 	    }
 	}
     }
@@ -740,6 +759,8 @@ namespace graph_alg
 			const typename Traits3<GraphOps>::DFSCode& dfsc_tested,
 			const GraphOps& ops)
     {
+	typedef typename Traits3<GraphOps>::VLR VLR;
+	typedef typename Traits3<GraphOps>::ELR ELR;
 	typedef typename Traits3<GraphOps>::SBG SBG;
 	typedef typename Traits3<GraphOps>::Edge Edge;
 	typedef typename Traits3<GraphOps>::ExtEdge ExtEdge;
@@ -747,15 +768,19 @@ namespace graph_alg
 
 	// --------------------------------------------------------------
 	// enumerate
-	typedef typename Traits3<GraphOps>::Map_EL_ExtEdges    BckEdges;
-	typedef typename Traits3<GraphOps>::Map_EL_VL_ExtEdges FwdEdges;
+	typedef typename Traits3<GraphOps>::Map_EL_ExtEdgeList    BckEdges;
+	typedef typename Traits3<GraphOps>::Map_EL_VL_ExtEdgeList FwdEdges;
 
 	RMPath rmpath(dfsc_min);
 	typename Traits1<GraphOps>::VI maxtoc = dfsc_min[rmpath.rightmost()].vi_to;
 
+	typename Traits3<GraphOps>::Elabel_less el_less(ops);
+	typename Traits3<GraphOps>::Vlabel_less vl_less(ops);
+
 	// backward
 	{
-	    BckEdges bck_edges;
+	    typename Traits3<GraphOps>::Elabel_less el_less(ops);
+	    BckEdges bck_edges(el_less);
 	    typename Traits1<GraphOps>::VI newto = ops.null_vertex_index();
 	    bool flg = false;
 	    for (unsigned int i = 0; !flg && i < rmpath.size() - 1; ++i)
@@ -768,8 +793,9 @@ namespace graph_alg
 		    if (!iter.is_end())
 		    {
 			const Edge& e = iter.get_edge();
-			ExtEdge ext(sbg, e);		    
-			bck_edges[ops.eilabel(e.ei,g)].push_back(ext);
+			ExtEdge ext(sbg, e);
+			ELR el = ops.eilabel(e.ei,g);
+			getval(bck_edges, el).push_back(ext);
 			newto = dfsc_min[rmpath[i]].vi_from;
 			flg = true;
 		    }
@@ -778,7 +804,7 @@ namespace graph_alg
 
 	    if (flg)
 	    {
-		typename BckEdges::M1_iterator i1 = bck_edges.begin();
+		typename BckEdges::const_iterator i1 = bck_edges.begin();
 		dfsc_min.push(EdgeCode(maxtoc, newto, ops.null_vlabel(), i1->first, ops.null_vlabel()));
 		if (! edgecode_equal(dfsc_min[dfsc_min.size()-1], dfsc_tested[dfsc_min.size()-1], ops))
 		    return false;
@@ -789,7 +815,7 @@ namespace graph_alg
 
 	// forward
 	{
-	    FwdEdges fwd_edges;
+	    FwdEdges fwd_edges(el_less);
 	    typename Traits3<GraphOps>::VL minlabel = dfsc_min[0].vl_from;
 	    typename Traits3<GraphOps>::VI newfrom = ops.null_vertex_index();
 	    bool flg = false;
@@ -804,7 +830,9 @@ namespace graph_alg
 		{
 		    const Edge& e = iter.get_edge();
 		    ExtEdge ext(sbg, e);
-		    fwd_edges[ops.eilabel(e.ei,g)][ops.vilabel(e.vi_to,g)].push_back(ext);
+		    ELR el = ops.eilabel(e.ei,g);
+		    VLR vl = ops.vilabel(e.vi_to,g);
+		    getval(fwd_edges, el, vl, vl_less).push_back(ext);
 		    newfrom = maxtoc;
 		    flg = true;
 		}
@@ -822,7 +850,9 @@ namespace graph_alg
 		    {
 			const Edge& e = iter.get_edge();
 			ExtEdge ext(sbg, e);
-			fwd_edges[ops.eilabel(e.ei,g)][ops.vilabel(e.vi_to,g)].push_back(ext);
+			ELR el = ops.eilabel(e.ei,g);
+			VLR vl = ops.vilabel(e.vi_to,g);
+			getval(fwd_edges, el, vl, vl_less).push_back(ext);
 			newfrom = dfsc_min[rmpath[i]].vi_from;
 			flg = true;
 		    }
@@ -831,8 +861,8 @@ namespace graph_alg
 
 	    if (flg)
 	    {
-		typename FwdEdges::M1_iterator i1 = fwd_edges.begin();
-		typename FwdEdges::M2_iterator i2 = i1->second.begin();
+		typename FwdEdges::const_iterator i1 = fwd_edges.begin();
+		typename FwdEdges::mapped_type::const_iterator i2 = i1->second.begin();
 		dfsc_min.push(EdgeCode(newfrom, maxtoc+1, ops.null_vlabel(), i1->first, i2->first));
 		if (! edgecode_equal(dfsc_min[dfsc_min.size()-1], dfsc_tested[dfsc_min.size()-1], ops))
 		    return false;
@@ -851,15 +881,17 @@ namespace graph_alg
 	typedef typename Traits3<GraphOps>::SBGS SBGS;
 	typedef typename Traits3<GraphOps>::Map_VL_EL_VL_P M3;
 	
+	typename Traits3<GraphOps>::Vlabel_less vl_less(ops);
+
 	std::auto_ptr<G> graph(ops.create_graph(dfsc_tested));	
 	SBGS sbgs;
-	M3 root;
+	M3 root(vl_less);
 	enumerate_one(root, sbgs, *graph, ops);
 	
 	typename Traits3<GraphOps>::DFSCode dfsc_min;
-	typename M3::M1_iterator i1 = root.begin();
-	typename M3::M2_iterator i2 = i1->second.begin();
-	typename M3::M3_iterator i3 = i2->second.begin();
+	typename M3::const_iterator i1 = root.begin();
+	typename M3::mapped_type::const_iterator i2 = i1->second.begin();
+	typename M3::mapped_type::mapped_type::const_iterator i3 = i2->second.begin();
 	typename Traits3<GraphOps>::EdgeCode ec(0, 1, i1->first, i2->first, i3->first);
 	dfsc_min.push(ec);
 	return project_is_min(i3->second, dfsc_min, dfsc_tested, ops);
@@ -871,6 +903,14 @@ namespace graph_alg
 		 typename Traits3<GraphOps>::DFSCode& dfsc, int minsup,
 		 const GraphOps& ops, Output& result)
     {
+	typedef typename Traits3<GraphOps>::VI  VI;
+	typedef typename Traits3<GraphOps>::VLR VLR;
+	typedef typename Traits3<GraphOps>::ELR ELR;
+	typedef typename Traits3<GraphOps>::SBG SBG;
+	typedef typename Traits3<GraphOps>::Edge Edge;
+	typedef typename Traits3<GraphOps>::ExtEdge ExtEdge;
+	typedef typename Traits3<GraphOps>::EdgeCode EdgeCode;
+
 	int sup = support(projected);
 	if (sup < minsup)
 	    return;
@@ -882,22 +922,25 @@ namespace graph_alg
 	
 	// --------------------------------------------------------------
 	// enumerate
-	typedef typename Traits3<GraphOps>::Map_VI_EL_VL_ExtEdges FwdEdges;
-	typedef typename Traits3<GraphOps>::Map_VI_EL_ExtEdges    BckEdges;
+	typedef typename Traits3<GraphOps>::Map_VI_EL_ExtEdgeList    BckEdges;
+	typedef typename Traits3<GraphOps>::Map_VI_EL_VL_ExtEdgeList FwdEdges;
 
-	BckEdges bck_edges;
-	FwdEdges fwd_edges;
+	std::less<VI> vi_less;
+	typename Traits3<GraphOps>::Elabel_less el_less(ops);
+	typename Traits3<GraphOps>::Vlabel_less vl_less(ops);
+
+	BckEdges bck_edges(vi_less);
+	FwdEdges fwd_edges(vi_less);
 
 	RMPath rmpath(dfsc);
 
-	typename Traits1<GraphOps>::VI maxtoc   = dfsc[rmpath.rightmost()].vi_to;
-	typename Traits1<GraphOps>::VL minlabel = dfsc[0].vl_from;
+	VI maxtoc   = dfsc[rmpath.rightmost()].vi_to;
+	VLR minlabel = dfsc[0].vl_from;
 	
-	BOOST_FOREACH(typename Traits3<GraphOps>::SBG* sbg, projected)
+	BOOST_FOREACH(SBG* sbg, projected)
 	{
-	    typename Traits3<GraphOps>::SBG& s = *sbg;
+	    SBG& s = *sbg;
 	    const typename Traits3<GraphOps>::G& g = s.get_graph();
-	    num_vertices(g);
 
 	    // backward
 	    for (unsigned int i = 0; i < rmpath.size() - 1; ++i)
@@ -905,9 +948,11 @@ namespace graph_alg
 		BackwardEdgeIterator<GraphOps> iter(s[rmpath[i]], s[rmpath.rightmost()], sbg, ops);
 		if (!iter.is_end())
 		{
-		    const typename Traits3<GraphOps>::Edge& e = iter.get_edge();
-		    typename Traits3<GraphOps>::ExtEdge ext(sbg, e);
-		    bck_edges[dfsc[rmpath[i]].vi_from][ops.eilabel(e.ei,g)].push_back(ext);
+		    const Edge& e = iter.get_edge();
+		    ExtEdge ext(sbg, e);
+		    VI vi  = dfsc[rmpath[i]].vi_from;
+		    ELR el = ops.eilabel(e.ei,g);
+		    getval(bck_edges, vi, el, el_less).push_back(ext);
 		}
 	    }
 
@@ -915,21 +960,23 @@ namespace graph_alg
 	    for (ForwardPureEdgeIterator<GraphOps> iter(s[rmpath.rightmost()], minlabel, sbg, ops);
 		 !iter.is_end(); iter.next())
 	    {
-		const typename Traits3<GraphOps>::Edge& e = iter.get_edge();
-		typename Traits3<GraphOps>::ExtEdge ext(sbg, e);
-		fwd_edges[maxtoc][ops.eilabel(e.ei,g)][ops.vilabel(e.vi_to,g)].push_back(ext);
+		const Edge& e = iter.get_edge();
+		ExtEdge ext(sbg, e);
+		ELR el = ops.eilabel(e.ei,g);
+		VLR vl = ops.vilabel(e.vi_to,g);
+		getval(fwd_edges, maxtoc, el, vl, el_less, vl_less).push_back(ext);
 	    }
 
 	    for (int i = rmpath.size()-1; i >= 0; --i)
 		for (ForwardRMPathEdgeIterator<GraphOps> iter(s[rmpath[i]], minlabel, sbg, ops);
 		     !iter.is_end(); iter.next())
 		{
-		    const typename Traits3<GraphOps>::Edge& e = iter.get_edge();
-		    typename Traits3<GraphOps>::ExtEdge ext(sbg, e);
-		    fwd_edges
-			[dfsc[rmpath[i]].vi_from]
-			[ops.eilabel(e.ei,g)]
-			[ops.vilabel(e.vi_to,g)].push_back(ext);
+		    const Edge& e = iter.get_edge();
+		    ExtEdge ext(sbg, e);
+		    VI vi  = dfsc[rmpath[i]].vi_from;
+		    ELR el = ops.eilabel(e.ei,g);
+		    VLR vl = ops.vilabel(e.vi_to,g);
+		    getval(fwd_edges, vi, el, vl, el_less, vl_less).push_back(ext);
 		}
 	}
 
@@ -937,11 +984,11 @@ namespace graph_alg
 	// test SBG + extended edge children
 
 	// backward
-	for (typename BckEdges::M1_iterator it1 = bck_edges.begin(); it1 != bck_edges.end(); ++it1)
-	    for (typename BckEdges::M2_iterator it2 = it1->second.begin(); it2 != it1->second.end(); ++it2)
+	for (typename BckEdges::const_iterator it1 = bck_edges.begin(); it1 != bck_edges.end(); ++it1)
+	    for (typename BckEdges::mapped_type::const_iterator it2 = it1->second.begin();
+		 it2 != it1->second.end(); ++it2)
 	    {
-		typename Traits3<GraphOps>::EdgeCode ec(maxtoc, it1->first,
-							ops.null_vlabel(), it2->first, ops.null_vlabel());
+		EdgeCode ec(maxtoc, it1->first, ops.null_vlabel(), it2->first, ops.null_vlabel());
 		dfsc.push(ec);
 		typename Traits3<GraphOps>::Projected next_projected(it2->second);
 		project(next_projected, dfsc, minsup, ops, result);
@@ -949,12 +996,14 @@ namespace graph_alg
 	    }
 
 	// forward
-	for (typename FwdEdges::M1_riterator it1 = fwd_edges.rbegin(); it1 != fwd_edges.rend(); ++it1)
-	    for (typename FwdEdges::M2_iterator it2 = it1->second.begin(); it2 != it1->second.end(); ++it2)
-		for (typename FwdEdges::M3_iterator it3 = it2->second.begin(); it3 != it2->second.end(); ++it3)
+	for (typename FwdEdges::const_reverse_iterator it1 = fwd_edges.rbegin();
+	     it1 != fwd_edges.rend(); ++it1)
+	    for (typename FwdEdges::mapped_type::const_iterator it2 = it1->second.begin();
+		 it2 != it1->second.end(); ++it2)
+		for (typename FwdEdges::mapped_type::mapped_type::const_iterator it3 = it2->second.begin();
+		     it3 != it2->second.end(); ++it3)
 		{
-		    typename Traits3<GraphOps>::EdgeCode ec(it1->first, maxtoc+1,
-							    ops.null_vlabel(), it2->first, it3->first);
+		    EdgeCode ec(it1->first, maxtoc+1, ops.null_vlabel(), it2->first, it3->first);
 		    dfsc.push(ec);
 		    typename Traits3<GraphOps>::Projected next_projected(it3->second);
 		    project(next_projected, dfsc, minsup, ops, result);
@@ -971,15 +1020,18 @@ namespace graph_alg
 	typedef typename Traits3<GraphOps>::SBGS SBGS;
 	typedef typename Traits3<GraphOps>::Map_VL_EL_VL_P M3;
 
+	typename Traits3<GraphOps>::Vlabel_less vl_less(ops);
 	SBGS sbgs;
-	M3 root;
+	M3 root(vl_less);
 	for (; tg_begin != tg_end; ++tg_begin)
 	    enumerate_one(root, sbgs, *tg_begin, ops);
 
 	typename Traits3<GraphOps>::DFSCode dfsc;
-	for (typename M3::M1_iterator i1 = root.begin(); i1 != root.end(); ++i1)
-	    for (typename M3::M2_iterator i2 = i1->second.begin(); i2 != i1->second.end(); ++i2)
-		for (typename M3::M3_iterator i3 = i2->second.begin(); i3 != i2->second.end(); ++i3)
+	for (typename M3::const_iterator i1 = root.begin(); i1 != root.end(); ++i1)
+	    for (typename M3::mapped_type::const_iterator i2 = i1->second.begin();
+		 i2 != i1->second.end(); ++i2)
+		for (typename M3::mapped_type::mapped_type::const_iterator i3 = i2->second.begin();
+		     i3 != i2->second.end(); ++i3)
 		{
 		    typename Traits3<GraphOps>::EdgeCode ec(0, 1, i1->first, i2->first, i3->first);
 		    dfsc.push(ec);
