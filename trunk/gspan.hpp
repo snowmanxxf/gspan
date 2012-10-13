@@ -319,6 +319,12 @@ namespace graph_alg
     {
 	if (ou_iters_.first != ou_iters_.second)
 	    set_edge_ou();
+	else
+	{
+	    curr_edge_.vi_from = ops_.null_vertex_index();
+	    curr_edge_.vi_to   = ops_.null_vertex_index();
+	    curr_edge_.ei      = ops_.null_edge_index();
+	}
     }
 
     template<class GraphOps, class DirTag>
@@ -390,7 +396,12 @@ namespace graph_alg
 	    state_ = IN_ITER;
 	}
 	else
+	{
+	    curr_edge_.vi_from = ops_.null_vertex_index();
+	    curr_edge_.vi_to   = ops_.null_vertex_index();
+	    curr_edge_.ei      = ops_.null_edge_index();
 	    state_ = END;
+	}
     }
 
     template<class GraphOps>
@@ -540,7 +551,7 @@ namespace graph_alg
 							 const GraphOps& ops)
 	:Base(e2.vi_to, sbg->get_graph(), ops)
     {
-	assert(e1.ei != e2.ei);
+	//assert(e1.ei != e2.ei); // ???????????????
 	const typename Traits1<GraphOps>::G& g = sbg->get_graph();
 	typename Traits1<GraphOps>::ELR e1label = ops_.eilabel(e1.ei, sbg->get_graph());
 	bool b = ops.vlabel_less_or_equal(ops.vilabel(e1.vi_to, g),
@@ -719,7 +730,7 @@ namespace graph_alg
     template<class Projected, class DFSCode, class Output>
     void report(const Projected& projected, const DFSCode& dfsc, Output& result)
     {
-	std::cout << "report(): resulted " << dfsc << std::endl;
+	//std::cout << "report(): resulted " << dfsc << std::endl;
 	//result(projected, dfsc);
     }
 
