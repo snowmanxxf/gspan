@@ -32,8 +32,8 @@ namespace graph_alg
     // Graph operations
     // ----------------------------
     //  graph_t* create_graph(const DFSCode& dfsc);
-    //  vertex_index_t null_vertex_index();
-    //  edge_index_t   null_edge_index();
+    //  vertex_index_t void_vertex_index();
+    //  edge_index_t   void_edge_index();
     //  vertex_index_t    get_vertex_index(vertex_descriptor vd, const graph_t& g);
     //  vertex_descriptor get_vertex_descriptor(vertex_index vi, const graph_t& g);
     //  edge_index_t      get_edge_index(edge_descriptor ed, const graph_t& g);
@@ -60,8 +60,8 @@ namespace graph_alg
     //  bool elabel_equal         (edge_label_ref_t, edge_label_ref_t);
     //  bool elabel_less          (edge_label_ref_t, edge_label_ref_t);
     //  bool elabel_less_or_equal (edge_label_ref_t, edge_label_ref_t);
-    //  bool               null_vlabel(vertex_label_ref_t);
-    //  vertex_label_ref_t null_vlabel();
+    //  bool               void_vlabel(vertex_label_ref_t);
+    //  vertex_label_ref_t void_vlabel();
     //
     // =============================================================================
 
@@ -321,9 +321,9 @@ namespace graph_alg
 	    set_edge_ou();
 	else
 	{
-	    curr_edge_.vi_from = ops_.null_vertex_index();
-	    curr_edge_.vi_to   = ops_.null_vertex_index();
-	    curr_edge_.ei      = ops_.null_edge_index();
+	    curr_edge_.vi_from = ops_.void_vertex_index();
+	    curr_edge_.vi_to   = ops_.void_vertex_index();
+	    curr_edge_.ei      = ops_.void_edge_index();
 	}
     }
 
@@ -397,9 +397,9 @@ namespace graph_alg
 	}
 	else
 	{
-	    curr_edge_.vi_from = ops_.null_vertex_index();
-	    curr_edge_.vi_to   = ops_.null_vertex_index();
-	    curr_edge_.ei      = ops_.null_edge_index();
+	    curr_edge_.vi_from = ops_.void_vertex_index();
+	    curr_edge_.vi_to   = ops_.void_vertex_index();
+	    curr_edge_.ei      = ops_.void_edge_index();
 	    state_ = END;
 	}
     }
@@ -588,33 +588,41 @@ namespace graph_alg
     class Projected_ : public std::vector<typename Traits2<GraphOps>::SBG* >
     {
     public:
-	typedef std::vector<typename Traits2<GraphOps>::SBG* > Base;
 	typedef typename Traits2<GraphOps>::ExtEdgeList ExtEdgeList;
 	Projected_() {}
-	Projected_(const typename Traits2<GraphOps>::ExtEdgeList& exl)
-	    {
-		reserve(exl.size());
-		for (typename ExtEdgeList::const_iterator i = exl.begin(); i != exl.end(); ++i)
-		{
-		    i->first->push(i->second);
-		    push_back(i->first);
-		}
-	    }
-
-	~Projected_()
-	    {
-		for (typename Base::iterator i = this->begin(); i != this->end(); ++i)
-		    (*i)->pop();
-	    }
-
-	int num_graphs() const
-	    {
-		std::set<const typename Traits2<GraphOps>::G*> n;
-		BOOST_FOREACH(const typename Traits2<GraphOps>::SBG* p, *this)
-		    n.insert(p->get_graph_p());
-		return n.size();
-	    }
+	explicit Projected_(const typename Traits2<GraphOps>::ExtEdgeList& exl);
+	~Projected_();
     };
+
+
+    template<class GraphOps>
+    Projected_<GraphOps>::Projected_(const typename Traits2<GraphOps>::ExtEdgeList& exl)
+    {
+	reserve(exl.size());
+	for (typename ExtEdgeList::const_iterator i = exl.begin(); i != exl.end(); ++i)
+	{
+	    i->first->push(i->second);
+	    push_back(i->first);
+	}
+    }
+
+    template<class GraphOps>
+    Projected_<GraphOps>::~Projected_()
+    {
+	typedef std::vector<typename Traits2<GraphOps>::SBG* > Base;
+	for (typename Base::iterator i = this->begin(); i != this->end(); ++i)
+	    (*i)->pop();
+    }
+
+    template<class GraphOps>
+    int num_graphs(const Projected_<GraphOps>& j)
+    {
+	std::set<const typename Traits2<GraphOps>::G*> n;
+	BOOST_FOREACH(const typename Traits2<GraphOps>::SBG* p, j)
+	    n.insert(p->get_graph_p());
+	return n.size();
+    }
+
 
     template<class GraphOps>
     std::ostream& operator<<(std::ostream& out, const Projected_<GraphOps>& r)
@@ -662,7 +670,7 @@ namespace graph_alg
     }
 
     
-    template<class GraphOps>    
+    template<class GraphOps>
     class Vlabel_less_
     {
 	const GraphOps& ops_;
@@ -722,16 +730,15 @@ namespace graph_alg
     //                          gspan functions
     // *****************************************************************************
     template<class Projected>
-    int support(const Projected& projected)
+    inline int support(const Projected& projected)
     {
-	return projected.num_graphs();
+	return num_graphs(projected);
     }
 
     template<class Projected, class DFSCode, class Output>
     void report(const Projected& projected, const DFSCode& dfsc, Output& result)
     {
-	//std::cout << "report(): resulted " << dfsc << std::endl;
-	//result(projected, dfsc);
+	result(projected, dfsc);
     }
 
 
@@ -759,7 +766,14 @@ namespace graph_alg
 		typename Traits3<GraphOps>::VLR vl_from = ops.vilabel(e.vi_from, g);
 		typename Traits3<GraphOps>::VLR vl_to   = ops.vilabel(e.vi_to, g);
 	        typename Traits3<GraphOps>::ELR el      = ops.eilabel(e.ei, g);
-		getval(m, vl_from, el, vl_to, el_less, vl_less).push_back(sbg);
+
+		assert(vl_from != "");
+		assert(! ops.void_vlabel(vl_from));
+		assert(! ops.void_vlabel(vl_to));
+
+		getval(m,
+		       vl_from, el, vl_to,
+		       el_less, vl_less).push_back(sbg);
 	    }
 	}
     }
@@ -776,6 +790,9 @@ namespace graph_alg
 	typedef typename Traits3<GraphOps>::Edge Edge;
 	typedef typename Traits3<GraphOps>::ExtEdge ExtEdge;
 	typedef typename Traits3<GraphOps>::EdgeCode EdgeCode;
+	
+	if (! edgecode_equal(dfsc_min[dfsc_min.size()-1], dfsc_tested[dfsc_min.size()-1], ops))
+	    return false;
 
 	// --------------------------------------------------------------
 	// enumerate
@@ -792,7 +809,7 @@ namespace graph_alg
 	{
 	    typename Traits3<GraphOps>::Elabel_less el_less(ops);
 	    BckEdges bck_edges(el_less);
-	    typename Traits1<GraphOps>::VI newto = ops.null_vertex_index();
+	    typename Traits1<GraphOps>::VI newto = ops.void_vertex_index();
 	    bool flg = false;
 	    for (unsigned int i = 0; !flg && i < rmpath.size() - 1; ++i)
 	    {
@@ -816,9 +833,7 @@ namespace graph_alg
 	    if (flg)
 	    {
 		typename BckEdges::const_iterator i1 = bck_edges.begin();
-		dfsc_min.push(EdgeCode(maxtoc, newto, ops.null_vlabel(), i1->first, ops.null_vlabel()));
-		if (! edgecode_equal(dfsc_min[dfsc_min.size()-1], dfsc_tested[dfsc_min.size()-1], ops))
-		    return false;
+		dfsc_min.push(EdgeCode(maxtoc, newto, ops.void_vlabel(), i1->first, ops.void_vlabel()));
 		typename Traits3<GraphOps>::Projected next_projected(i1->second);
 		return project_is_min(next_projected, dfsc_min, dfsc_tested, ops);
 	    }
@@ -828,7 +843,7 @@ namespace graph_alg
 	{
 	    FwdEdges fwd_edges(el_less);
 	    typename Traits3<GraphOps>::VL minlabel = dfsc_min[0].vl_from;
-	    typename Traits3<GraphOps>::VI newfrom = ops.null_vertex_index();
+	    typename Traits3<GraphOps>::VI newfrom = ops.void_vertex_index();
 	    bool flg = false;
 	    
 	    // forward pure
@@ -874,9 +889,7 @@ namespace graph_alg
 	    {
 		typename FwdEdges::const_iterator i1 = fwd_edges.begin();
 		typename FwdEdges::mapped_type::const_iterator i2 = i1->second.begin();
-		dfsc_min.push(EdgeCode(newfrom, maxtoc+1, ops.null_vlabel(), i1->first, i2->first));
-		if (! edgecode_equal(dfsc_min[dfsc_min.size()-1], dfsc_tested[dfsc_min.size()-1], ops))
-		    return false;
+		dfsc_min.push(EdgeCode(newfrom, maxtoc+1, ops.void_vlabel(), i1->first, i2->first));
 		typename Traits3<GraphOps>::Projected next_projected(i2->second);
 		return project_is_min(next_projected, dfsc_min, dfsc_tested, ops);
 	    }
@@ -927,7 +940,7 @@ namespace graph_alg
 	    return;
 
 	if (! is_min(dfsc, ops))
-	return;
+	    return;
 	
 	report(projected, dfsc, result);
 	
@@ -999,7 +1012,7 @@ namespace graph_alg
 	    for (typename BckEdges::mapped_type::const_iterator it2 = it1->second.begin();
 		 it2 != it1->second.end(); ++it2)
 	    {
-		EdgeCode ec(maxtoc, it1->first, ops.null_vlabel(), it2->first, ops.null_vlabel());
+		EdgeCode ec(maxtoc, it1->first, ops.void_vlabel(), it2->first, ops.void_vlabel());
 		dfsc.push(ec);
 		typename Traits3<GraphOps>::Projected next_projected(it2->second);
 		project(next_projected, dfsc, minsup, ops, result);
@@ -1014,7 +1027,7 @@ namespace graph_alg
 		for (typename FwdEdges::mapped_type::mapped_type::const_iterator it3 = it2->second.begin();
 		     it3 != it2->second.end(); ++it3)
 		{
-		    EdgeCode ec(it1->first, maxtoc+1, ops.null_vlabel(), it2->first, it3->first);
+		    EdgeCode ec(it1->first, maxtoc+1, ops.void_vlabel(), it2->first, it3->first);
 		    dfsc.push(ec);
 		    typename Traits3<GraphOps>::Projected next_projected(it3->second);
 		    project(next_projected, dfsc, minsup, ops, result);
@@ -1038,6 +1051,7 @@ namespace graph_alg
 	    enumerate_one(root, sbgs, *tg_begin, ops);
 
 	typename Traits3<GraphOps>::DFSCode dfsc;
+
 	for (typename M3::const_iterator i1 = root.begin(); i1 != root.end(); ++i1)
 	    for (typename M3::mapped_type::const_iterator i2 = i1->second.begin();
 		 i2 != i1->second.end(); ++i2)
@@ -1045,6 +1059,9 @@ namespace graph_alg
 		     i3 != i2->second.end(); ++i3)
 		{
 		    typename Traits3<GraphOps>::EdgeCode ec(0, 1, i1->first, i2->first, i3->first);
+#ifdef DEBUG_PRINT
+		    std::cerr << "gspan(): top level iteration with edgecode: " << ec << std::endl;
+#endif
 		    dfsc.push(ec);
 		    project(i3->second, dfsc, minsup, ops, result);
 		    dfsc.pop();
