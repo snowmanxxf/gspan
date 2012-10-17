@@ -15,9 +15,10 @@ using namespace graph_alg;
 typedef GraphOpsDefault<std::string, std::string, boost::directedS >      GraphOpsDir;
 typedef GraphOpsDefault<std::string, std::string, boost::bidirectionalS > GraphOpsBidir;
 
+
 // ------------------ READ stdin ---------------------------------------
 template<class GraphOps>
-std::istream& contruct_dfsc(typename GraphOps::DFSCode& dfsc, int& tr_number, std::istream& is)
+std::istream& contruct_dfsc(typename GraphOps::DFSCode& dfsc, std::string& tr_name, std::istream& is)
 {
     typedef typename GraphOps::EdgeCode EdgeCode;
     typedef typename GraphOps::DFSCode DFSCode;
@@ -53,7 +54,7 @@ std::istream& contruct_dfsc(typename GraphOps::DFSCode& dfsc, int& tr_number, st
                 return is;
             }
             
-            tr_number = atoi(result[2].c_str());
+            tr_name = result[2];
         }
         else if (result[0] == "v")
         {
@@ -85,23 +86,66 @@ public:
     typedef typename GraphOps::edge_label_t   EL;
     typedef typename GraphOps::vertex_index_t VI;
     
-    Result(std::map<const Graph*, int>& tr_numbers)
-	: tr_numbers(tr_numbers) {}
+    Result(std::ostream& ostr, std::map<const Graph*, std::string>& tr_names, const GraphOps& ops)
+	: ostr(ostr), tr_names(tr_names), ops(ops), ngraph(0) {}
+
+    void print_tgf(const DFSCode& dfsc, const Projected_<GraphOps>& projected);
 
     void operator() (const Projected_<GraphOps>& projected, const DFSCode& dfsc)
 	{
+	    print_tgf(dfsc, projected);
+/*
 	    std::cout << "result: " << dfsc << "\tat ";
 	    std::set<const Graph*> n;
 	    BOOST_FOREACH(const typename Traits3<GraphOps>::SBG* sbg, projected)
 		n.insert(sbg->get_graph_p());
 	    BOOST_FOREACH(const Graph* g, n)
-		std::cout << tr_numbers[g] << ",";
+		std::cout << tr_names[g] << ",";
 	    std::cout << std::endl;
+*/
 	}
 private:
-    std::map<const Graph*, int>& tr_numbers;
+    std::ostream& ostr;
+    std::map<const Graph*, std::string>& tr_names;
+    const GraphOps& ops;
+    int ngraph;
 };
 
+template<class GraphOps>
+void Result<GraphOps>::print_tgf(const DFSCode& dfsc, const Projected_<GraphOps>& projected)
+{
+    std::map<VI,VL> vlabels;
+    
+    BOOST_FOREACH(const EdgeCode& ec, dfsc)
+    {
+	if (!ops.void_vlabel(ec.vl_from))vlabels[ec.vi_from] = ec.vl_from;
+	if (!ops.void_vlabel(ec.vl_to))  vlabels[ec.vi_to] = ec.vl_to;
+    }
+    
+    ostr << "t # " << ++ngraph << std::endl;
+
+    for (typename std::map<VI,VL>::const_iterator i = vlabels.begin(); i != vlabels.end(); ++i)
+	ostr << "v " << i->first << " " << i->second << std::endl;
+
+    BOOST_FOREACH(const EdgeCode& ec, dfsc)
+	ostr << "e " << ec.vi_from << " " << ec.vi_to << " " << ec.el << std::endl;
+
+
+    std::set<const Graph*> gg;
+    BOOST_FOREACH(const typename Traits3<GraphOps>::SBG* sbg, projected)
+	gg.insert(sbg->get_graph_p());
+    ostr << "# Found in: ";
+    for (typename std::set<const Graph*>::const_iterator i = gg.begin(); i != gg.end(); ++i)
+    {
+	typename std::set<const Graph*>::const_iterator tmpi = i;
+	ostr << tr_names[*i];
+	if (++tmpi != gg.end())
+	    ostr << ", ";
+	else
+	    ostr << std::endl;
+    }
+    ostr << std::endl;
+}
 
 // ---------------------------------------------------------------------
 
@@ -117,29 +161,29 @@ void run(std::istream& is, int minsup)
 
     GraphOps ops;
     boost::ptr_vector<Graph> gr;
-    std::map<const Graph*, int> tr_numbers;
-    Result<GraphOps> result(tr_numbers);
+    std::map<const Graph*, std::string> tr_names;
+    Result<GraphOps> result(std::cout, tr_names, ops);
     unsigned int skipped = 0;
 
     while (true)
     {
-	int tr_number = -1;
+	std::string tr_name;
 	DFSCode dfsc;
-	contruct_dfsc<GraphOps>(dfsc, tr_number, is);
+	contruct_dfsc<GraphOps>(dfsc, tr_name, is);
 	if (dfsc.empty())
 	    break;
 	try {
 	    Graph* graph = ops.create_graph(dfsc);
 	    gr.push_back(graph);
-	    tr_numbers[graph] = tr_number;
+	    tr_names[graph] = tr_name;
 
-	    std::cerr << "INFO:    Graph " << tr_number << " was created"
+	    std::cerr << "INFO:    Graph " << tr_name << " was created"
 		      << " at address " << graph << std::endl;
 	}
 	catch (typename GraphOps::VertexNotLabeledException e)
 	{
 	    ++skipped;
-	    std::cerr << "WARNING: Graph " << tr_number << " not created, vertex "
+	    std::cerr << "WARNING: Graph " << tr_name << " not created, vertex "
 		      << e.vertex_index << " not labeled" << std::endl;
 	}
     }
