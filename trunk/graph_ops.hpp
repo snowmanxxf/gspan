@@ -51,8 +51,8 @@ namespace graph_alg
 	// ----------------------------
 	// Graph operations
 	// ----------------------------
-	typedef typename Traits1<GraphOpsDefault>::DFSCode DFSCode;
-	typedef typename Traits1<GraphOpsDefault>::EdgeCode EdgeCode;
+	typedef typename Traits<GraphOpsDefault>::DFSCode DFSCode;
+	typedef typename Traits<GraphOpsDefault>::EdgeCode EdgeCode;
 
 	struct EdgePropIterator : public DFSCode::const_iterator
 	{
@@ -64,7 +64,7 @@ namespace graph_alg
 	void dfsc_add(DFSCode& dfsc, vertex_index_t from, vertex_index_t to,
 		      VL fromlabel, EL elabel, VL tolabel)
 	    {
-		typedef typename Traits1<GraphOpsDefault>::EdgeCode EdgeCode;
+		typedef typename Traits<GraphOpsDefault>::EdgeCode EdgeCode;
 		dfsc.push(EdgeCode(from, to,
 				   dfsc.empty() ? fromlabel : void_vlabel(),
 				   elabel,
@@ -155,20 +155,15 @@ namespace graph_alg
 	// set labels
 	typename DFSCode::const_iterator it = dfsc.begin();
 	typename DFSCode::const_iterator it_end = dfsc.end();
-	if (it != it_end)
+	while (it != it_end)
 	{
 	    if (! void_vlabel(it->vl_from))
-	    {
 		g[it->vi_from] = it->vl_from;
-	    }
-	    while (it != it_end)
-	    {
-		if (! void_vlabel(it->vl_to))
-		    g[it->vi_to] = it->vl_to;
-		++it;
-	    }
+	    
+	    if (! void_vlabel(it->vl_to))
+		g[it->vi_to] = it->vl_to;
+	    ++it;
 	}
-
 
 	typename boost::graph_traits<graph_t>::vertex_iterator vi, viend;
 	for (boost::tie(vi,viend) = vertices(g); vi != viend; ++vi)
