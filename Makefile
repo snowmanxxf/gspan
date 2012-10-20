@@ -3,4 +3,4 @@ SOURCES := main.cpp
 HEADERS := gspan.hpp graph_ops.hpp
 
 gspan: $(SOURCES) $(HEADERS)
-	g++ -O2 -Wall $(SOURCES) -o gspan
+	g++ -DDEBUG_PRINT -O2 -p -Wall $(SOURCES) -o gspan
