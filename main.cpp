@@ -1,5 +1,4 @@
 
-#include "gspan.hpp"
 #include "graph_ops.hpp"
 
 #include <stdlib.h>
@@ -10,11 +9,8 @@
 #include <boost/graph/graphviz.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 
-#include <unistd.h> // getopt_long()
-
 using namespace graph_alg;
 
-typedef GraphOpsDefault<std::string, std::string, boost::directedS >      GraphOpsDir;
 typedef GraphOpsDefault<std::string, std::string, boost::bidirectionalS > GraphOpsBidir;
 
 bool verbose = false;
@@ -88,7 +84,7 @@ public:
     typedef typename GraphOps::graph_t Graph;
     typedef typename GraphOps::EdgeCode EdgeCode;
     typedef typename GraphOps::DFSCode DFSCode;
-    typedef typename Traits<GraphOps>::Projected Projected;
+    typedef typename gSpan::Traits<GraphOps>::Projected Projected;
     typedef typename GraphOps::vertex_label_t VL;
     typedef typename GraphOps::edge_label_t   EL;
     typedef typename GraphOps::vertex_index_t VI;
@@ -150,7 +146,7 @@ void Result<GraphOps>::print_tgf(const DFSCode& dfsc, const Projected& projected
 
 
     std::set<const Graph*> gg;
-    BOOST_FOREACH(const typename Traits<GraphOps>::SBG& sbg, projected)
+    BOOST_FOREACH(const typename gSpan::Traits<GraphOps>::SBG& sbg, projected)
 	gg.insert(sbg.get_graph());
     ostr << "#found_in: ";
     for (typename std::set<const Graph*>::const_iterator i = gg.begin(); i != gg.end(); ++i)
@@ -166,61 +162,16 @@ void Result<GraphOps>::print_tgf(const DFSCode& dfsc, const Projected& projected
 
 // ---------------------------------------------------------------------
 
-template<class GraphOps>
-void run(std::istream& is, int minsup)
-{
-    typedef typename GraphOps::graph_t Graph;
-    typedef typename GraphOps::EdgeCode EdgeCode;
-    typedef typename GraphOps::DFSCode DFSCode;
-    typedef typename GraphOps::vertex_label_t VL;
-    typedef typename GraphOps::edge_label_t   EL;
-    typedef typename GraphOps::vertex_index_t VI;
-
-    GraphOps ops;
-    boost::ptr_vector<Graph> gr;
-    std::map<const Graph*, std::string> tr_names;
-    Result<GraphOps> result(std::cout, tr_names, ops);
-    unsigned int skipped = 0;
-
-    while (true)
-    {
-	std::string tr_name;
-	DFSCode dfsc;
-	contruct_dfsc<GraphOps>(dfsc, tr_name, is);
-	if (dfsc.empty())
-	    break;
-	try {
-	    Graph* graph = ops.create_graph(dfsc);
-	    gr.push_back(graph);
-	    tr_names[graph] = tr_name;
-
-	    if (verbose)
-		std::cerr << "INFO:    Graph " << tr_name << " was created"
-			  << " at address " << graph << std::endl;
-	}
-	catch (typename GraphOps::VertexNotLabeledException e)
-	{
-	    ++skipped;
-	    if (verbose)
-		std::cerr << "WARNING: Graph " << tr_name << " not created, vertex "
-			  << e.vertex_index << " not labeled" << std::endl;
-	}
-    }
-
-    if (verbose)
-	std::cerr << "Transactional graphs: " << gr.size() << " created, "
-		  << skipped << " skipped" << std::endl;
-
-    gspan(gr.begin(), gr.end(), minsup, ops, result);
-}
-
 std::ostream& usage(std::ostream& ostr)
-{
-    return ostr << "Usage: gspan <minsup> [-dir] [-dfsc] -v" << std::endl << std::endl;
+{ 
+    return ostr << "Usage: gspan <minsup> [-dfsc] -v" << std::endl << std::endl;
 }
 
 int main(int argc, char** argv)
 {
+    // ------------------------------------------
+    // parse arguments
+    // ------------------------------------------
     if (argc < 2)
     {
 	usage(std::cerr);
@@ -229,31 +180,60 @@ int main(int argc, char** argv)
 
     int minsup = atoi(argv[1]);
 
-    bool directed =
-	(argc > 2 && std::string(argv[2]) == "-dir") ||
-	(argc > 3 && std::string(argv[3]) == "-dir") ||
-	(argc > 4 && std::string(argv[4]) == "-dir");
-
     print_dfscode =
+	(argc > 1 && std::string(argv[1]) == "-dfsc") ||
 	(argc > 2 && std::string(argv[2]) == "-dfsc") ||
-	(argc > 3 && std::string(argv[3]) == "-dfsc") ||
-	(argc > 4 && std::string(argv[4]) == "-dfsc");
+	(argc > 3 && std::string(argv[3]) == "-dfsc");
 
     verbose =
+	(argc > 1 && std::string(argv[1]) == "-v") ||
 	(argc > 2 && std::string(argv[2]) == "-v") ||
-	(argc > 3 && std::string(argv[3]) == "-v") ||
-	(argc > 4 && std::string(argv[4]) == "-v");
+	(argc > 3 && std::string(argv[3]) == "-v");
 
+    // ------------------------------------------
+    // prepare input (transactional) graphs
+    // ------------------------------------------
+    GraphOpsBidir ops;
+    boost::ptr_vector<GraphOpsBidir::graph_t> gr;
+    std::map<const GraphOpsBidir::graph_t*, std::string> tr_names;
 
-    if (directed)
     {
-	std::cout << "#directed" << std::endl;
-	run<GraphOpsDir>(std::cin, minsup);
+	unsigned int skipped = 0;
+	while (true)
+	{
+	    std::string tr_name;
+	    GraphOpsBidir::DFSCode dfsc;
+	    contruct_dfsc<GraphOpsBidir>(dfsc, tr_name, std::cin);
+	    if (dfsc.empty())
+		break;
+	    try {
+		GraphOpsBidir::graph_t* graph = ops.create_graph(dfsc);
+		gr.push_back(graph);
+		tr_names[graph] = tr_name;
+
+		if (verbose)
+		    std::cerr << "INFO:    Graph " << tr_name << " was created"
+			      << " at address " << graph << std::endl;
+	    }
+	    catch (GraphOpsBidir::VertexNotLabeledException e)
+	    {
+		++skipped;
+		if (verbose)
+		    std::cerr << "WARNING: Graph " << tr_name << " not created, vertex "
+			      << e.vertex_index << " not labeled" << std::endl;
+	    }
+	}
+
+	if (verbose)
+	    std::cerr << "Transactional graphs: " << gr.size() << " created, "
+		      << skipped << " skipped" << std::endl;
     }
-    else
-    {
-	std::cout << "#undirected" << std::endl;
-	run<GraphOpsBidir>(std::cin, minsup);
-    }
-    return 0;
+
+    // ------------------------------------------
+    // run
+    // ------------------------------------------
+    Result<GraphOpsBidir> result(std::cout, tr_names, ops);
+    gSpan::gspan(gr.begin(), gr.end(), minsup, ops, result);
+
+    CloseGraph::closegraph(gr.begin(), gr.end(), minsup, ops, result);
 }

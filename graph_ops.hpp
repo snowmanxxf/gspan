@@ -3,7 +3,7 @@
 
 #include <limits>
 
-#include "gspan.hpp"
+#include "closegraph.hpp"
 #include <boost/graph/compressed_sparse_row_graph.hpp>
 
 namespace graph_alg
@@ -51,8 +51,8 @@ namespace graph_alg
 	// ----------------------------
 	// Graph operations
 	// ----------------------------
-	typedef typename Traits<GraphOpsDefault>::DFSCode DFSCode;
-	typedef typename Traits<GraphOpsDefault>::EdgeCode EdgeCode;
+	typedef typename gSpan::Traits<GraphOpsDefault>::DFSCode DFSCode;
+	typedef typename gSpan::Traits<GraphOpsDefault>::EdgeCode EdgeCode;
 
 	struct EdgePropIterator : public DFSCode::const_iterator
 	{
@@ -60,16 +60,6 @@ namespace graph_alg
 		:DFSCode::const_iterator(iter) {}
 	    const edge_label_ref_t operator* () const { return (*this)->el; };
 	};
-
-	void dfsc_add(DFSCode& dfsc, vertex_index_t from, vertex_index_t to,
-		      VL fromlabel, EL elabel, VL tolabel)
-	    {
-		typedef typename Traits<GraphOpsDefault>::EdgeCode EdgeCode;
-		dfsc.push(EdgeCode(from, to,
-				   dfsc.empty() ? fromlabel : void_vlabel(),
-				   elabel,
-				   from < to ? tolabel : void_vlabel()));
-	    }
 
 	struct VertexNotLabeledException
 	{
