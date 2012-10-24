@@ -9,7 +9,7 @@ my $graph_id;
 my $graph_kind;
 my $edgeop;
 
-if (scalar(@ARGV) > 0 && $ARGV[0] =~ "directed")
+if (scalar(@ARGV) > 0 && $ARGV[0] =~ "-dir")
 {
     $directed = 1;
     $graph_kind = "digraph";

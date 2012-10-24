@@ -94,13 +94,14 @@ public:
     typedef typename GraphOps::vertex_index_t VI;
     
     Result(std::ostream& ostr, std::map<const Graph*, std::string>& tr_names, const GraphOps& ops)
-	: ostr(ostr), tr_names(tr_names), ops(ops), ngraph(0) {}
+	: ostr(ostr), tr_names(tr_names), ops(ops), ngraph(0), num_patterns(0) {}
 
     void print_dfsc(const DFSCode& dfsc, const Projected& projected);
     void print_tgf(const DFSCode& dfsc, const Projected& projected);
 
     void operator() (const Projected& projected, const DFSCode& dfsc)
 	{
+	    ++num_patterns;
 	    if (print_dfscode)
 		print_dfsc(dfsc, projected);
 	    else
@@ -111,17 +112,20 @@ private:
     std::map<const Graph*, std::string>& tr_names;
     const GraphOps& ops;
     int ngraph;
+
+    int num_patterns;
 };
 
 template<class GraphOps>
 void Result<GraphOps>::print_dfsc(const DFSCode& dfsc, const Projected& projected)
 {
-    ostr << dfsc << std::endl;
+    ostr << std::setw(2) << num_patterns << ": " << dfsc << std::endl;
 
     if (verbose)
     {
-	BOOST_FOREACH(const typename Projected::value_type sbg, projected)
-	    ostr << "\t" << sbg;
+	BOOST_FOREACH(const typename Projected::value_type& sbg, projected)
+	    ostr << "\t" << sbg << std::endl;
+	//ostr << "\t" << projected.front() << std::endl;
     }
 }
 
@@ -151,12 +155,10 @@ void Result<GraphOps>::print_tgf(const DFSCode& dfsc, const Projected& projected
     ostr << "#found_in: ";
     for (typename std::set<const Graph*>::const_iterator i = gg.begin(); i != gg.end(); ++i)
     {
-	typename std::set<const Graph*>::const_iterator tmpi = i;
 	ostr << tr_names[*i];
-	if (++tmpi != gg.end())
-	    ostr << ", ";
-	else
-	    ostr << std::endl;
+	typename std::set<const Graph*>::const_iterator tmpi = i;
+	if (++tmpi != gg.end()) ostr << ", ";
+	else                    ostr << std::endl;
     }
     ostr << std::endl;
 }
