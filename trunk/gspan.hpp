@@ -228,9 +228,9 @@ namespace graph_alg
 	~SBG_() { delete rec_; }
 
 	int size() const { return depth_; }
-	const Edge& operator[] (int i) const		{ if (!rec_) init_rec(); return *rec_->e_.at(i); }
-        bool has_vertex(typename Edge::VI vi) const	{ if (!rec_) init_rec(); return rec_->vv_[vi]; }
-        bool has_edge(const Edge& e) const		{ if (!rec_) init_rec(); return rec_->ee_[e.ei]; }
+	const Edge& operator[] (int i) const		{ if (!rec_) init_rec_(); return *rec_->e_.at(i); }
+        bool has_vertex(typename Edge::VI vi) const	{ if (!rec_) init_rec_(); return rec_->vv_[vi]; }
+        bool has_edge(const Edge& e) const		{ if (!rec_) init_rec_(); return rec_->ee_[e.ei]; }
 	const G* get_graph() const { return graph_; }
     private:
 	const SBG_* prev_;
@@ -239,25 +239,13 @@ namespace graph_alg
 	struct R
 	{
 	    std::vector<const Edge*> e_;
-	    std::vector<int> vv_;
+	    std::vector<short> vv_;
 	    std::vector<bool> ee_;
-	    R(const Edge& e, const G& g) : e_(1, &e), vv_(num_vertices(g), 0), ee_(num_edges(g), false)
-		{
-		    ++vv_[e.vi_from];
-		    ++vv_[e.vi_to];
-		    ee_[e.ei] = true;
-		}
-
-	    R(const Edge& e, const R* prev) :e_(prev->e_), vv_(prev->vv_), ee_(prev->ee_)
-		{
-		    e_.push_back(&e);
-		    ++vv_[e.vi_from];
-		    ++vv_[e.vi_to];
-		    ee_[e.ei] = true;
-		}
+	    R(const Edge& e, const G& g);
+	    R(const Edge& e, const R* prev);
 	};
 	mutable R* rec_;
-	void init_rec() const;
+	void init_rec_() const;
 	const G* graph_;
 	int depth_;
 
@@ -265,9 +253,27 @@ namespace graph_alg
     };
 
     template<class GraphOps>
-    void SBG_<GraphOps>::init_rec() const
+    SBG_<GraphOps>::R::R(const Edge& e, const G& g)
+		      : e_(1, &e), vv_(num_vertices(g), 0), ee_(num_edges(g), false)
     {
-	assert(!rec_);
+	++vv_[e.vi_from];
+	++vv_[e.vi_to];
+	ee_[e.ei] = true;
+    }
+
+    template<class GraphOps>    
+    SBG_<GraphOps>::R::R(const Edge& e, const R* prev)
+	:e_(prev->e_), vv_(prev->vv_), ee_(prev->ee_)
+    {
+	e_.push_back(&e);
+	++vv_[e.vi_from];
+	++vv_[e.vi_to];
+	ee_[e.ei] = true;
+    }
+    
+    template<class GraphOps>
+    void SBG_<GraphOps>::init_rec_() const
+    {
 	if (prev_)
 	    rec_ = new R(edge_, prev_->rec_);
 	else
@@ -278,13 +284,11 @@ namespace graph_alg
     std::ostream& operator<<(std::ostream& out, const SBG_<GraphOps>& sbg)
     {
 	out << "sbg:";
-	for (int i = 0; i < sbg.size(); ++i) out << " " << sbg[i];
+	for (int i = 0; i < sbg.size(); ++i)
+	    out << " " << sbg[i];
 	out << " at address: " << &sbg << " of the graph: " << sbg.get_graph();
 	return out;
     }
-
-    template<class GraphOps>
-    std::ostream& operator<<(std::ostream& out, const SBG_<GraphOps>* sbg) { return out << *sbg; }
 
 
     // *****************************************************************************
@@ -594,13 +598,15 @@ namespace graph_alg
 
 	for (; !this->is_end(); this->increment())
 	{
-	    const typename Traits<GraphOps>::Edge& e = curr_edge_;
-	    if (sbg->has_edge(e))
+	    if (sbg->has_edge(curr_edge_))
 		continue;
-	    typename Traits<GraphOps>::ELR elabel = ops.eilabel(e.ei,g);
-	    if (e.vi_to == e1.vi_from &&
-		(ops.elabel_less(e1label,elabel) || (ops.elabel_equal(e1label,elabel) && b) ) )
-		break;
+
+	    if (curr_edge_.vi_to == e1.vi_from)
+	    {
+		typename Traits<GraphOps>::ELR elabel = ops.eilabel(curr_edge_.ei,g);
+		if (ops.elabel_less(e1label,elabel) || (ops.elabel_equal(e1label,elabel) && b))
+		    break;
+	    }
 	}
     }
 
@@ -867,10 +873,11 @@ namespace graph_alg
         dfsc_min.push(ec);
         return project_is_min(i3->second, dfsc_min, dfsc_tested, ops);
     }
-
+    
+    enum RETS { NOTSUP, NOTMIN, HASCHILD, NOCHILD };
 
     template<class GraphOps, class Output>
-    void project(const typename Traits<GraphOps>::Projected& projected,
+    RETS project(const typename Traits<GraphOps>::Projected& projected,
                  typename Traits<GraphOps>::DFSCode& dfsc, int minsup,
                  const GraphOps& ops, Output& result)
     {
@@ -883,12 +890,12 @@ namespace graph_alg
 
         int sup = support(projected);
         if (sup < minsup)
-            return;
+            return NOTSUP;
 
         if (! is_min(dfsc, ops))
-            return;
-        
-        report(projected, dfsc, result);
+            return NOTMIN;
+
+	report(projected, dfsc, result); 
 
         // --------------------------------------------------------------
         // enumerate
@@ -921,6 +928,14 @@ namespace graph_alg
                     VI vi  = dfsc[rmpath[i]].vi_from;
                     ELR el = ops.eilabel(e.ei,g);
                     mapped_val(bck_edges, vi, el, el_less).push_back(SBG(&sbg, e));
+
+		    // virtual forward pure
+		    VLR vl_to = ops.vilabel(e.vi_to,g);
+		    mapped_val(fwd_edges, maxtoc, el, vl_to, el_less, vl_less).push_back(SBG(&sbg, e));
+
+		    // virtual forward rmpath
+		    VLR vl_from = ops.vilabel(e.vi_from,g);
+		    mapped_val(fwd_edges, vi, el, vl_from, el_less, vl_less).push_back(SBG(&sbg, e));
                 }
             }
 
@@ -943,8 +958,10 @@ namespace graph_alg
                     ELR el = ops.eilabel(e.ei,g);
                     VLR vl = ops.vilabel(e.vi_to,g);
                     mapped_val(fwd_edges, vi, el, vl, el_less, vl_less).push_back(SBG(&sbg, e));
-                }	   
+                }
 	}
+
+	RETS ret = NOCHILD;
 
         // --------------------------------------------------------------
         // recursive process SBG children
@@ -957,6 +974,7 @@ namespace graph_alg
                 dfsc.push(ec);
                 project(it2->second, dfsc, minsup, ops, result);
                 dfsc.pop();
+		ret = HASCHILD;
             }
         // forward
 	typedef typename FwdEdges::const_reverse_iterator FwdI1;
@@ -970,7 +988,12 @@ namespace graph_alg
                     dfsc.push(ec);
                     project(i3->second, dfsc, minsup, ops, result);
                     dfsc.pop();
+		    ret = HASCHILD;
                 }
+
+	if (ret == NOCHILD)
+	    ;//report(projected, dfsc, result);
+	return ret;
     }
 
     template<class TGraphIterator, class GraphOps, class Output>
