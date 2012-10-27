@@ -1,30 +1,31 @@
 
-#include "graph_policy.hpp"
-#include "gspan.hpp"
+#include "graph_ops.hpp"
 
+#include <stdlib.h>
+#include <cstring>
 #include <iostream>
-#include <iomanip>
+#include <string>
+#include <set>
+#include <boost/graph/graphviz.hpp>
 #include <boost/ptr_container/ptr_vector.hpp>
 
-//using namespace gSpan;
+using namespace graph_alg;
 
-static bool verbose = false;
-static bool print_dfscode = false;
+typedef GraphOpsDefault<std::string, std::string, boost::bidirectionalS > GraphOpsBidir;
 
-typedef GraphPolicy Policy;
-typedef Policy::graph_t Graph;
-typedef Policy::vertex_label_t VL;
-typedef Policy::edge_label_t   EL;
-typedef Policy::vertex_index_t VI;
-
-typedef gSpan::EdgeCode<Policy> EdgeCode;
-typedef gSpan::DFSCode<Policy> DFSCode;
-typedef gSpan::SBG<Policy> SBG;
-typedef gSpan::Projected<Policy> Projected;
+bool verbose = false;
+bool print_dfscode = false;
 
 // ------------------ READ stdin ---------------------------------------
-std::istream& contruct_dfsc(DFSCode& dfsc, std::string& tr_name, std::istream& is)
+template<class GraphOps>
+std::istream& contruct_dfsc(typename GraphOps::DFSCode& dfsc, std::string& tr_name, std::istream& is)
 {
+    typedef typename GraphOps::EdgeCode EdgeCode;
+    typedef typename GraphOps::DFSCode DFSCode;
+    typedef typename GraphOps::vertex_label_t VL;
+    typedef typename GraphOps::edge_label_t   EL;
+    typedef typename GraphOps::vertex_index_t VI;
+
     std::map<VI, VL> vlabels;
 
     char line[1024];
@@ -67,20 +68,34 @@ std::istream& contruct_dfsc(DFSCode& dfsc, std::string& tr_name, std::istream& i
             VI to     = atoi(result[2].c_str());
             EL elabel = result[3];
 	    EdgeCode ec(from, to, vlabels[from], elabel, vlabels[to]);
-            dfsc.push_back(ec);
+            dfsc.push(ec);
         }
     }
     return is;
 }
 
+
 // ------------------ RESULT -------------------------------------------
+
+template<class GraphOps>
 class Result
 {
 public:
-    Result(std::ostream& ostr, std::map<const Graph*, std::string>& tr_names, const Policy& ops)
+    typedef typename GraphOps::graph_t Graph;
+    typedef typename GraphOps::EdgeCode EdgeCode;
+    typedef typename GraphOps::DFSCode DFSCode;
+    typedef typename gSpan::Traits<GraphOps>::Projected Projected;
+    typedef typename GraphOps::vertex_label_t VL;
+    typedef typename GraphOps::edge_label_t   EL;
+    typedef typename GraphOps::vertex_index_t VI;
+    
+    Result(std::ostream& ostr, std::map<const Graph*, std::string>& tr_names, const GraphOps& ops)
 	: ostr(ostr), tr_names(tr_names), ops(ops), ngraph(0), num_patterns(0) {}
 
-    void operator() (const DFSCode& dfsc, const Projected& projected)
+    void print_dfsc(const DFSCode& dfsc, const Projected& projected);
+    void print_tgf(const DFSCode& dfsc, const Projected& projected);
+
+    void operator() (const Projected& projected, const DFSCode& dfsc)
 	{
 	    ++num_patterns;
 	    if (print_dfscode)
@@ -91,27 +106,30 @@ public:
 private:
     std::ostream& ostr;
     std::map<const Graph*, std::string>& tr_names;
-    const Policy& ops;
+    const GraphOps& ops;
     int ngraph;
-    int num_patterns;
 
-    void print_dfsc(const DFSCode& dfsc, const Projected& projected);
-    void print_tgf(const DFSCode& dfsc, const Projected& projected);
+    int num_patterns;
 };
 
-void Result::print_dfsc(const DFSCode& dfsc, const Projected& projected)
+template<class GraphOps>
+void Result<GraphOps>::print_dfsc(const DFSCode& dfsc, const Projected& projected)
 {
     ostr << std::setw(2) << num_patterns << ": " << dfsc << std::endl;
+
     if (verbose)
     {
-	BOOST_FOREACH(const SBG& sbg, projected)
+	BOOST_FOREACH(const typename Projected::value_type& sbg, projected)
 	    ostr << "\t" << sbg << std::endl;
+	//ostr << "\t" << projected.front() << std::endl;
     }
 }
 
-void Result::print_tgf(const DFSCode& dfsc, const Projected& projected)
+template<class GraphOps>
+void Result<GraphOps>::print_tgf(const DFSCode& dfsc, const Projected& projected)
 {
     std::map<VI,VL> vlabels;
+    
     BOOST_FOREACH(const EdgeCode& ec, dfsc)
     {
 	if (!ops.void_vlabel(ec.vl_from))vlabels[ec.vi_from] = ec.vl_from;
@@ -119,13 +137,16 @@ void Result::print_tgf(const DFSCode& dfsc, const Projected& projected)
     }
     
     ostr << "t # " << ++ngraph << std::endl;
+
     for (typename std::map<VI,VL>::const_iterator i = vlabels.begin(); i != vlabels.end(); ++i)
 	ostr << "v " << i->first << " " << i->second << std::endl;
+
     BOOST_FOREACH(const EdgeCode& ec, dfsc)
 	ostr << "e " << ec.vi_from << " " << ec.vi_to << " " << ec.el << std::endl;
 
+
     std::set<const Graph*> gg;
-    BOOST_FOREACH(const SBG& sbg, projected)
+    BOOST_FOREACH(const typename gSpan::Traits<GraphOps>::SBG& sbg, projected)
 	gg.insert(sbg.get_graph());
     ostr << "#found_in: ";
     for (typename std::set<const Graph*>::const_iterator i = gg.begin(); i != gg.end(); ++i)
@@ -135,19 +156,15 @@ void Result::print_tgf(const DFSCode& dfsc, const Projected& projected)
 	if (++tmpi != gg.end()) ostr << ", ";
 	else                    ostr << std::endl;
     }
-
-    if (verbose)
-    {
-	BOOST_FOREACH(const SBG& sbg, projected)
-	    ostr << "#\t" << sbg << std::endl;
-    }
     ostr << std::endl;
 }
 
 
+// ---------------------------------------------------------------------
+
 std::ostream& usage(std::ostream& ostr)
 { 
-    return ostr << "Usage: CMD <minsup> [-dfsc] -v" << std::endl << std::endl;
+    return ostr << "Usage: gspan <minsup> [-dfsc] -v" << std::endl << std::endl;
 }
 
 int main(int argc, char** argv)
@@ -173,49 +190,50 @@ int main(int argc, char** argv)
 	(argc > 2 && std::string(argv[2]) == "-v") ||
 	(argc > 3 && std::string(argv[3]) == "-v");
 
-
     // ------------------------------------------
     // prepare input (transactional) graphs
     // ------------------------------------------
-    Policy pl;
-    boost::ptr_vector<GraphPolicy::graph_t> gr_trans;
-    std::map<const Policy::graph_t*, std::string> tr_names;
+    GraphOpsBidir ops;
+    boost::ptr_vector<GraphOpsBidir::graph_t> gr;
+    std::map<const GraphOpsBidir::graph_t*, std::string> tr_names;
 
     {
-#ifdef DEBUG_CHECK_GRAPH_LABEL
 	unsigned int skipped = 0;
-#endif
 	while (true)
 	{
 	    std::string tr_name;
-	    DFSCode dfsc;
-	    contruct_dfsc(dfsc, tr_name, std::cin);
+	    GraphOpsBidir::DFSCode dfsc;
+	    contruct_dfsc<GraphOpsBidir>(dfsc, tr_name, std::cin);
 	    if (dfsc.empty())
 		break;
-#ifdef DEBUG_CHECK_GRAPH_LABEL
-	    try
-#endif
-	    {
-		Policy::graph_t* graph = pl.create_graph(dfsc);
-		gr_trans.push_back(graph);
+	    try {
+		GraphOpsBidir::graph_t* graph = ops.create_graph(dfsc);
+		gr.push_back(graph);
 		tr_names[graph] = tr_name;
 
 		if (verbose)
 		    std::cerr << "INFO:    Graph " << tr_name << " was created"
 			      << " at address " << graph << std::endl;
 	    }
-#ifdef DEBUG_CHECK_GRAPH_LABEL
-	    catch (Policy::VertexNotLabeledException e)
+	    catch (GraphOpsBidir::VertexNotLabeledException e)
 	    {
 		++skipped;
 		if (verbose)
 		    std::cerr << "WARNING: Graph " << tr_name << " not created, vertex "
 			      << e.vertex_index << " not labeled" << std::endl;
 	    }
-#endif
 	}
+
+	if (verbose)
+	    std::cerr << "Transactional graphs: " << gr.size() << " created, "
+		      << skipped << " skipped" << std::endl;
     }
-	
-    Result result(std::cout, tr_names, pl);
-    gSpan::GSPAN_FUNCTION(gr_trans.begin(), gr_trans.end(), minsup, GraphPolicy(), result);
+
+    // ------------------------------------------
+    // run
+    // ------------------------------------------
+    Result<GraphOpsBidir> result(std::cout, tr_names, ops);
+    gSpan::gspan(gr.begin(), gr.end(), minsup, ops, result);
+
+    //CloseGraph::closegraph(gr.begin(), gr.end(), minsup, ops, result);
 }
