@@ -22,7 +22,6 @@ typedef gSpan::DFSCode<Policy> DFSCode;
 typedef gSpan::SBG<Policy> SBG;
 typedef gSpan::Projected<Policy> Projected;
 
-// ------------------ READ stdin ---------------------------------------
 std::istream& contruct_dfsc(DFSCode& dfsc, std::string& tr_name, std::istream& is)
 {
     std::map<VI, VL> vlabels;
@@ -73,7 +72,7 @@ std::istream& contruct_dfsc(DFSCode& dfsc, std::string& tr_name, std::istream& i
     return is;
 }
 
-// ------------------ RESULT -------------------------------------------
+
 class Result
 {
 public:
@@ -83,6 +82,10 @@ public:
     void operator() (const DFSCode& dfsc, const Projected& projected)
 	{
 	    ++num_patterns;
+	    /*if (num_patterns == 1)
+	      return;
+	      if (num_patterns == 4)
+	      exit(0);*/
 	    if (print_dfscode)
 		print_dfsc(dfsc, projected);
 	    else
@@ -94,14 +97,15 @@ private:
     const Policy& ops;
     int ngraph;
     int num_patterns;
-
+    
     void print_dfsc(const DFSCode& dfsc, const Projected& projected);
     void print_tgf(const DFSCode& dfsc, const Projected& projected);
 };
 
 void Result::print_dfsc(const DFSCode& dfsc, const Projected& projected)
 {
-    ostr << std::setw(2) << num_patterns << ": " << dfsc << std::endl;
+    ostr << std::setw(2) << num_patterns << ": supp=" << projected.mgsbg_size() << ": "
+	 << dfsc << std::endl;
     if (verbose)
     {
 	BOOST_FOREACH(const SBG& sbg, projected)
@@ -127,7 +131,7 @@ void Result::print_tgf(const DFSCode& dfsc, const Projected& projected)
     std::set<const Graph*> gg;
     BOOST_FOREACH(const SBG& sbg, projected)
 	gg.insert(sbg.get_graph());
-    ostr << "#found_in: ";
+    ostr << "#found_in " << projected.mgsbg_size() << ": ";
     for (typename std::set<const Graph*>::const_iterator i = gg.begin(); i != gg.end(); ++i)
     {
 	ostr << tr_names[*i];
@@ -149,6 +153,7 @@ std::ostream& usage(std::ostream& ostr)
 { 
     return ostr << "Usage: CMD <minsup> [-dfsc] -v" << std::endl << std::endl;
 }
+
 
 int main(int argc, char** argv)
 {
@@ -217,5 +222,5 @@ int main(int argc, char** argv)
     }
 	
     Result result(std::cout, tr_names, pl);
-    gSpan::GSPAN_FUNCTION(gr_trans.begin(), gr_trans.end(), minsup, GraphPolicy(), result);
+    gSpan::GSPAN_FUNCTION(gr_trans.begin(), gr_trans.end(), minsup, pl, result);
 }

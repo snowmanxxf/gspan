@@ -5,14 +5,19 @@
 #include <iostream>
 #include <vector>
 #include <deque>
+#include <queue>
 #include <list>
 #include <map>
 #include <set>
 #include <iterator>
 #include <memory>
+#include <algorithm>
 
 #include <boost/graph/graph_traits.hpp>
 #include <boost/foreach.hpp>
+
+#define BR asm volatile ("int $3;")
+#include "edge_iterator.hpp"
 
 namespace gSpan
 {
@@ -29,7 +34,7 @@ namespace gSpan
     template<class Policy>
     inline std::ostream& operator<<(std::ostream& out, const Edge<Policy>& e)
     {
-	return out<<"("<<e.vi_from<<","<<e.vi_to<<")";
+	return out<<e.ei<<"("<<e.vi_from<<","<<e.vi_to<<") ";
     }
 
     // *****************************************************************************
@@ -98,17 +103,17 @@ namespace gSpan
     // *****************************************************************************
     class RMPath
     {
-	std::deque<unsigned int> rmp_;
+	std::deque<int> rmp_;
     public:
 	template<class Policy>
 	explicit RMPath(const DFSCode<Policy>& dfsc);
-	unsigned int operator[] (int i) const { return rmp_[i]; }
-	unsigned int size() const { return rmp_.size(); }
-	unsigned int rightmost() const { return rmp_.back(); }
+	int operator[] (int i) const { return rmp_[i]; }
+	int size() const { return rmp_.size(); }
+	int rightmost() const { return rmp_.back(); }
 	friend std::ostream& operator<<(std::ostream& out, const RMPath& r)
 	    {
 		std::copy(r.rmp_.begin(), r.rmp_.end(),
-			  std::ostream_iterator<unsigned int>(out, " "));
+			  std::ostream_iterator<int>(out, " "));
 		return out;
 	    }
     };
@@ -136,16 +141,31 @@ namespace gSpan
 	typedef typename Policy::vertex_index_t     VI;
 	typedef typename Policy::edge_index_t       EI;
 
-	SBG(const G* g, const Edge<Policy>& e)   :prev_(0), edge_(e), rec_(0), graph_(g), depth_(1) {}
-	SBG(const SBG* s, const Edge<Policy>& e) :prev_(s), edge_(e), rec_(0), graph_(s->graph_), depth_(s->depth_+1) {}
-	SBG(const SBG& s)                :prev_(s.prev_), edge_(s.edge_), rec_(0), graph_(s.graph_), depth_(s.depth_) {}
-	~SBG() { delete rec_; }
+	SBG(const G* g, const Edge<Policy>& e)
+	    :prev_(0), edge_(e), rec_(0), graph_(g), depth_(1) { automorph_list = 0; }
+
+	SBG(const SBG* s, const Edge<Policy>& e)
+	    :prev_(s), edge_(e), rec_(0), graph_(s->graph_), depth_(s->depth_+1)
+	    { automorph_list = 0; }
+
+	SBG(const SBG& s)
+	    :prev_(s.prev_), edge_(s.edge_), rec_(0), graph_(s.graph_), depth_(s.depth_)
+	    {
+		automorph_list = s.automorph_list;
+	    }
+
+	~SBG()
+	    { delete rec_; }
 
 	int size() const { return depth_; }
 	const Edge<Policy>& operator[] (int i) const	{ if (!rec_) init_rec_(); return *rec_->e_[i]; }
-	bool has_vertex(VI vi) const		{ if (!rec_) init_rec_(); return rec_->vv_[vi]; }
+	bool has_vertex(VI vi) const		        { if (!rec_) init_rec_(); return rec_->vv_[vi]; }
+	bool has_edge(EI ei) const       	        { if (!rec_) init_rec_(); return rec_->ee_[ei]; }
 	bool has_edge(const Edge<Policy>& e) const	{ if (!rec_) init_rec_(); return rec_->ee_[e.ei]; }
 	const G* get_graph() const { return graph_; }
+	const SBG* parent() const { return prev_; }
+	const Edge<Policy>& last_edge() const { return edge_; }
+	SBG* automorph_list;
     private:
 	const SBG* prev_;
 	Edge<Policy> edge_;
@@ -201,258 +221,340 @@ namespace gSpan
 	out << "sbg:";
 	for (int i = 0; i < sbg.size(); ++i)
 	    out << " " << sbg[i];
-	out << " at address: " << &sbg << " of the graph: " << sbg.get_graph();
+	out << " at address: " << &sbg << " of the graph: " << sbg.get_graph() << " parent=" << sbg.parent();
 	return out;
     }
 
+    template<class Policy>
+    bool is_automorph(const SBG<Policy>& sbg1, const SBG<Policy>& sbg2)
+    {
+	assert(sbg1.get_graph() == sbg2.get_graph());
+	assert(sbg1.size() == sbg2.size());
+	std::set<typename Policy::edge_index_t> ei1;
+	std::set<typename Policy::edge_index_t> ei2;
+	int num = sbg1.size();
+	for (int i = 0; i < num; ++i)
+	{
+	    ei1.insert(sbg1[i].ei);
+	    ei2.insert(sbg2[i].ei);
+	}
+	return std::equal(ei1.begin(), ei1.end(), ei2.begin());
+    }
+
+    // *****************************************************************************
+    //                          Projected
+    // *****************************************************************************
+    template<class Policy>
+    class Projected
+    {
+    public:
+	typedef std::list<SBG<Policy>*> Sbgs;
+	typedef std::map<const typename Policy::graph_t*, Sbgs> M_G_SBG;
+
+	void push(const SBG<Policy>& s);
+
+	// all sbg iterator
+	typedef typename std::list<SBG<Policy> >::iterator iterator;
+	typedef typename std::list<SBG<Policy> >::const_iterator const_iterator;
+	iterator begin() { return s_.begin(); }
+	iterator end() { return s_.end(); }
+	const_iterator begin() const { return s_.begin(); }
+	const_iterator end() const { return s_.end(); }
+	int size() const { return s_.size(); }
+
+	//
+	typedef typename M_G_SBG::const_iterator MGSBGconst_iterator;
+	MGSBGconst_iterator mgsbg_begin() const { return m_g_sbg_.begin(); }
+	MGSBGconst_iterator mgsbg_end() const   { return m_g_sbg_.end(); }
+	int mgsbg_size() const { return m_g_sbg_.size(); }
+
+	void merge(Projected& p)
+	    {
+		s_.splice(s_.begin(), p.s_);
+		m_g_sbg_.insert(p.m_g_sbg_.begin(), p.m_g_sbg_.end());
+		p.m_g_sbg_.clear();
+	    }
+    private:
+	std::list<SBG<Policy> > s_;
+	M_G_SBG m_g_sbg_;
+    };
 
     template<class Policy>
-    class Projected : public std::list<SBG<Policy> > {};
+    void Projected<Policy>::push(const SBG<Policy>& s)
+    {
+	s_.push_back(s);
+	SBG<Policy>* ps = &s_.back();
+	Sbgs& sbgs = m_g_sbg_[s.get_graph()];
+	BOOST_FOREACH(SBG<Policy>* sbg, sbgs)
+	{
+	    if (is_automorph(*ps, *sbg))
+	    {
+		assert(ps->automorph_list == 0);
+		ps->automorph_list = sbg->automorph_list;
+		sbg->automorph_list = ps;
+		return;
+	    }
+	}
+	sbgs.push_back(ps);
+    }
+    
+
+    template<class Policy>
+    std::ostream& operator<<(std::ostream& out, const Projected<Policy>& p)
+    {
+	for (typename Projected<Policy>::const_iterator i = p.begin(); i != p.end(); ++i)
+	    out << '\t' << *i << std::endl;
+	return out;
+    }
 
     // *****************************************************************************
     //                          EdgeIterator
     // *****************************************************************************
-
-    // -----------------------------------------------------
-    //          EdgeIterator
-    // -----------------------------------------------------
-    template<class Policy, class DirTag>
-    class EdgeIterator;
-	
-    // -----------------------------------------------------
-    //		EdgeIterator for boost::undirectedS
-    // -----------------------------------------------------
-
-
-    // -----------------------------------------------------
-    //		EdgeIterator for boost::bidirectionalS
-    // -----------------------------------------------------
+    
     template<class Policy>
-    class EdgeIterator<Policy, boost::bidirectional_tag>
+    class GetEdge
     {
 	typedef typename Policy::graph_t G;
-	typedef typename boost::graph_traits<G>::out_edge_iterator out_edge_iterator;
-	typedef typename boost::graph_traits<G>::in_edge_iterator  in_edge_iterator;
-	std::pair<out_edge_iterator,out_edge_iterator> ou_iters_;
-	std::pair<in_edge_iterator,in_edge_iterator>   in_iters_;
-	const G& graph_;
-	enum State { OUT_ITER, IN_ITER, END } state_;
-	void set_edge_ou();
-	void set_edge_in();
-    public:
-	EdgeIterator(typename Policy::vertex_index_t vi, const G& g, const Policy& pl);
-	bool is_end() const { return state_ == END; }
-	const Edge<Policy>& get_edge() const { return curr_edge_; }
-	void increment();
-    protected:
-	Edge<Policy> curr_edge_;
 	const Policy& pl_;
-	const G& get_graph() const { return graph_; }
-    };
-
-    template<class Policy>
-    void EdgeIterator<Policy, boost::bidirectional_tag>::set_edge_ou()
-    {
-	curr_edge_.vi_from = source(*ou_iters_.first, graph_);
-	curr_edge_.vi_to   = target(*ou_iters_.first, graph_);
-	curr_edge_.ei      = pl_.get_edge_index(*ou_iters_.first, graph_);
-    }
-
-    template<class Policy>
-    void EdgeIterator<Policy, boost::bidirectional_tag>::set_edge_in()
-    {
-	curr_edge_.vi_from = target(*in_iters_.first, graph_);
-	curr_edge_.vi_to   = source(*in_iters_.first, graph_);
-	curr_edge_.ei      = pl_.get_edge_index(*in_iters_.first, graph_);
-    }
-
-    template<class Policy>
-    EdgeIterator<Policy, boost::bidirectional_tag>::EdgeIterator(typename Policy::vertex_index_t vi,
-								 const G& graph,
-								 const Policy& pl)
-	:ou_iters_(out_edges(pl.get_vertex_descriptor(vi,graph), graph)),
-	 in_iters_(in_edges(pl.get_vertex_descriptor(vi,graph), graph)),
-	 graph_(graph), pl_(pl)
-    {
-	if (ou_iters_.first != ou_iters_.second)
-	{
-	    set_edge_ou();
-	    state_ = OUT_ITER;
-	}
-	else if (in_iters_.first != in_iters_.second)
-	{
-	    set_edge_in();
-	    state_ = IN_ITER;
-	}
-	else
-	    state_ = END;
-    }
-
-    template<class Policy>
-    void EdgeIterator<Policy, boost::bidirectional_tag>::increment()
-    {
-	switch (state_)
-	{
-	case OUT_ITER:
-	    if (++ou_iters_.first != ou_iters_.second)
-		set_edge_ou();
-	    else if (in_iters_.first != in_iters_.second)
-	    {
-		set_edge_in();
-		state_ = IN_ITER;
-	    }
-	    else
-		state_ = END;
-	    break;
-	case IN_ITER: 
-	    if (++in_iters_.first != in_iters_.second)
-		set_edge_in();
-	    else
-		state_ = END;
-	    break;
-
-	case END: assert(0); break;
-	}
-    }
-
-    template<class Policy>
-    struct EdgeIteratorSelector
-    {
-	typedef typename Policy::graph_t G;
-	typedef typename boost::graph_traits<G>::directed_category DirTag;
-	typedef EdgeIterator<Policy,DirTag> Type;
-    };
-
-    // *****************************************************************************
-    //                         EdgeIterator forward pure
-    // *****************************************************************************
-    template<class Policy>
-    class ForwardPureEdgeIterator : private EdgeIteratorSelector<Policy>::Type
-    {
-	typedef typename EdgeIteratorSelector<Policy>::Type Base;
-	using Base::pl_;
-	using Base::curr_edge_;
-	typename Policy::vertex_label_ref_t minlabel_;
-	const SBG<Policy>& sbg_;
-	void next_();
+	const G& g_;
     public:
-	ForwardPureEdgeIterator(const Edge<Policy>& e,
-				typename Policy::vertex_label_ref_t minlabel,
-				const SBG<Policy>& sbg,
-				const Policy& pl)
-	    :Base(e.vi_to, *sbg.get_graph(), pl),
-	     minlabel_(minlabel),
-	     sbg_(sbg) { next_(); }
-	bool is_end() const			{ return Base::is_end(); }
-	const Edge<Policy>& get_edge() const	{ return Base::get_edge(); }
-	void next() { this->increment(); next_(); }
+	GetEdge(const Policy& pl, const G& g) :pl_(pl), g_(g) {}
+
+	Edge<Policy> operator() (const typename boost::graph_traits<G>::out_edge_iterator& it) const
+	    {
+		Edge<Policy> e;
+		e.vi_from = source(*it, g_);
+		e.vi_to   = target(*it, g_);
+		e.ei      = pl_.get_edge_index(*it, g_);
+		return e;
+	    }
+
+	Edge<Policy> operator() (const typename boost::graph_traits<G>::in_edge_iterator& it) const
+	    {
+		Edge<Policy> e;
+		e.vi_from = target(*it, g_);
+		e.vi_to   = source(*it, g_);
+		e.ei      = pl_.get_edge_index(*it, g_);
+		return e;
+	    }
+    };
+
+
+    template<class Policy>
+    class EdgeIter : public EdgeIterator<typename Policy::graph_t,
+					 Edge<Policy>,
+					 GetEdge<Policy> >
+    {
+	typedef EdgeIterator<typename Policy::graph_t, Edge<Policy>, GetEdge<Policy> > Base;
+    public:
+	EdgeIter(typename Policy::vertex_index_t vi,
+		 const typename Policy::graph_t& g,
+		 const Policy& pl)
+	    :Base(pl.get_vertex_descriptor(vi,g), g, GetEdge<Policy>(pl, g))
+	    {}
+    };
+
+
+    template<class Policy>
+    struct EdgeInSbgPred
+    {
+	const Policy& pl_;
+	const SBG<Policy>& sbg_;
+    public:
+	EdgeInSbgPred(const Policy& pl, const SBG<Policy>& sbg) :pl_(pl), sbg_(sbg) {}
+	bool operator() (const Edge<Policy>& e) const { return ! sbg_.has_edge(e.ei); }
     };
 
     template<class Policy>
-    void ForwardPureEdgeIterator<Policy>::next_()
+    class BackwardEdgePred
     {
-	const typename Policy::graph_t& g = this->get_graph();
-	for (; !this->is_end(); this->increment())
-	{
-	    if (pl_.vlabel_less_or_equal(minlabel_, pl_.vilabel(curr_edge_.vi_to, g)) &&
-		!sbg_.has_vertex(curr_edge_.vi_to))
-		break;
-	}
-    }
-
-    // *****************************************************************************
-    //                         EdgeIterator forward rmpath
-    // *****************************************************************************
-    template<class Policy>
-    class ForwardRMPathEdgeIterator : private EdgeIteratorSelector<Policy>::Type
-    {
-	typedef typename EdgeIteratorSelector<Policy>::Type Base;
-	using Base::pl_;
-	using Base::curr_edge_;
-	typename Policy::vertex_label_ref_t minlabel_;
 	const SBG<Policy>& sbg_;
+	const Edge<Policy>& e1_;
+	const Edge<Policy>& e2_;
+	const Policy& pl_;
+    public:
+	BackwardEdgePred(const SBG<Policy>& sbg, const Policy& pl,
+			 const Edge<Policy>& e1,
+			 const Edge<Policy>& e2)
+	    :sbg_(sbg), e1_(e1), e2_(e2), pl_(pl) {}
+	bool operator() (const Edge<Policy>& e) const
+	    {
+		const typename Policy::graph_t& g = *sbg_.get_graph();
+		typename Policy::edge_label_ref_t e1label = pl_.eilabel(e1_.ei, g);
+		typename Policy::edge_label_ref_t elabel = pl_.eilabel(e.ei,g);
+		typename Policy::vertex_label_ref_t vl1_to = pl_.vilabel(e1_.vi_to, g);
+		typename Policy::vertex_label_ref_t vl2_to = pl_.vilabel(e2_.vi_to, g);
+		return
+		    e.vi_to == e1_.vi_from && (
+			pl_.elabel_less(e1label,elabel) ||
+			(pl_.elabel_equal(e1label,elabel) && pl_.vlabel_less_or_equal(vl1_to, vl2_to)));
+	    }
+    };
+
+
+    template<class Policy>
+    class ForwardPureEdgePred
+    {
+	const SBG<Policy>& sbg_;
+	const Policy& pl_;
+	typename Policy::vertex_label_ref_t minlabel_;
+    public:
+	ForwardPureEdgePred(const SBG<Policy>& sbg,
+			    const Policy& pl,
+			    typename Policy::vertex_label_ref_t minlabel)
+	    :sbg_(sbg), pl_(pl), minlabel_(minlabel) {}
+	bool operator() (const Edge<Policy>& e) const
+	    {
+		return
+		    pl_.vlabel_less_or_equal(minlabel_, pl_.vilabel(e.vi_to, *sbg_.get_graph())) &&
+		    !sbg_.has_vertex(e.vi_to); // skip backward edge
+	    }
+    };
+
+
+    template<class Policy>
+    class ForwardRmpathEdgePred
+    {
+	const SBG<Policy>& sbg_;
+	const Policy& pl_;
+	typename Policy::vertex_label_ref_t minlabel_;
 	Edge<Policy> edge_;
-	void next_();
     public:
-	ForwardRMPathEdgeIterator(const Edge<Policy>& e,
-				  typename Policy::vertex_label_ref_t minlabel,
-				  const SBG<Policy>& sbg,
-				  const Policy& pl)
-	    :Base(e.vi_from, *sbg.get_graph(), pl),
-	     minlabel_(minlabel),
-	     sbg_(sbg),
-	     edge_(e) { next_(); }
-	bool is_end() const		     { return Base::is_end(); }
-	const Edge<Policy>& get_edge() const { return Base::get_edge(); }
-	void next() { this->increment(); next_(); }
+	ForwardRmpathEdgePred(const SBG<Policy>& sbg,
+			      const Policy& pl,
+			      typename Policy::vertex_label_ref_t minlabel,
+			      const Edge<Policy> edge)
+	    :sbg_(sbg), pl_(pl), minlabel_(minlabel), edge_(edge) {}
+	bool operator() (const Edge<Policy>& e) const;
     };
 
     template<class Policy>
-    void ForwardRMPathEdgeIterator<Policy>::next_()
+    bool ForwardRmpathEdgePred<Policy>::operator() (const Edge<Policy>& e) const
     {
-	const typename Policy::graph_t& g = this->get_graph();
-	for (; !this->is_end(); this->increment())
-	{
-	    typename Policy::vertex_label_ref_t tolabel  = pl_.vilabel(edge_.vi_to, g);
-	    typename Policy::vertex_label_ref_t tolabel2 = pl_.vilabel(curr_edge_.vi_to, g);
+	const typename Policy::graph_t& g = *sbg_.get_graph();
 
-	    if (sbg_.has_edge(curr_edge_) ||
-		sbg_.has_vertex(curr_edge_.vi_to) || pl_.vlabel_less(tolabel2, minlabel_))
-		continue;
+	typename Policy::vertex_label_ref_t tolabel  = pl_.vilabel(edge_.vi_to, g);
+	typename Policy::vertex_label_ref_t tolabel2 = pl_.vilabel(e.vi_to, g);
 
-	    typename Policy::edge_label_ref_t elabel  = pl_.eilabel(edge_.ei, g);
-	    typename Policy::edge_label_ref_t elabel2 = pl_.eilabel(curr_edge_.ei, g);
-
-	    if (pl_.elabel_less(elabel, elabel2) ||
-		(pl_.elabel_equal(elabel, elabel2) && pl_.vlabel_less_or_equal(tolabel, tolabel2) ) )
-		break;
-	}
+	if (sbg_.has_vertex(e.vi_to) || pl_.vlabel_less(tolabel2, minlabel_))
+	    return false;
+	
+	typename Policy::edge_label_ref_t elabel  = pl_.eilabel(edge_.ei, g);
+	typename Policy::edge_label_ref_t elabel2 = pl_.eilabel(e.ei, g);
+	
+	return
+	    pl_.elabel_less(elabel, elabel2) ||
+	    (pl_.elabel_equal(elabel, elabel2) && pl_.vlabel_less_or_equal(tolabel, tolabel2) );
     }
 
 
-    // *****************************************************************************
-    //                         EdgeIterator backward
-    // *****************************************************************************
-    template<class Policy>
-    class BackwardEdgeIterator : private EdgeIteratorSelector<Policy>::Type
+    struct DoNothing
     {
-	typedef typename EdgeIteratorSelector<Policy>::Type Base;
-	using Base::pl_;
-	using Base::curr_edge_;
-    public:
-	BackwardEdgeIterator(const Edge<Policy>& e1,
-			     const Edge<Policy>& e2,
-			     const SBG<Policy>& sbg,
-			     const Policy& pl);
-	bool is_end() const			{ return Base::is_end(); }
-	const Edge<Policy>& get_edge() const	{ return Base::get_edge(); }
+	template<class T>
+	void operator() (const T&) {}
     };
 
+    // -----------------------------------------------------
+    //			EdgeExtensionIterator
+    //		   filter out edges that exists in SBG
+    // -----------------------------------------------------
     template<class Policy>
-    BackwardEdgeIterator<Policy>::BackwardEdgeIterator(const Edge<Policy>& e1,
-						       const Edge<Policy>& e2,
-						       const SBG<Policy>& sbg,
-						       const Policy& pl)
-	:Base(e2.vi_to, *sbg.get_graph(), pl)
+    class EdgeExtensionIterator
+	: public EdgeConditionalIterator<EdgeIter<Policy>,
+					 EdgeInSbgPred<Policy>,
+					 DoNothing>
     {
-	const typename Policy::graph_t& g = this->get_graph();
-	typename Policy::edge_label_ref_t e1label = pl_.eilabel(e1.ei, g);
-	bool b = pl.vlabel_less_or_equal(pl.vilabel(e1.vi_to, g),
-					 pl.vilabel(e2.vi_to, g));
+	typedef EdgeIter<Policy> Iter;
+	typedef EdgeConditionalIterator<Iter, EdgeInSbgPred<Policy>, DoNothing> Base;
+    public:
+	typedef Edge<Policy> value_type;
+	EdgeExtensionIterator(typename Policy::vertex_index_t vi,
+			      const SBG<Policy>& sbg,
+			      const Policy& pl)
+	    :Base(Iter(vi, *sbg.get_graph(), pl),
+		  EdgeInSbgPred<Policy>(pl, sbg),
+		  DoNothing()) {}
+    };
 
-	for (; !this->is_end(); this->increment())
-	{
-	    if (sbg.has_edge(curr_edge_))
-		continue;
+    
+    // -----------------------------------------------------
+    //			EdgeExtensionPredIterator
+    // -----------------------------------------------------  
+    template<class Policy, class Pred, class OnFalse>
+    class EdgeExtensionPredIterator
+	: public EdgeConditionalIterator<EdgeExtensionIterator<Policy>, Pred, OnFalse>
+    {
+	typedef EdgeExtensionIterator<Policy> Iter;
+	typedef EdgeConditionalIterator<Iter, Pred, OnFalse> Base;
+    public:
+	EdgeExtensionPredIterator(typename Policy::vertex_index_t vi,
+			      const SBG<Policy>& sbg,
+			      const Policy& pl,
+			      const Pred& pred,
+			      OnFalse& onfalse)
+	    :Base(Iter(vi, sbg, pl), pred, onfalse) {}
+    };
 
-	    if (curr_edge_.vi_to == e1.vi_from)
-	    {
-		typename Policy::edge_label_ref_t elabel = pl.eilabel(curr_edge_.ei,g);
-		if (pl.elabel_less(e1label,elabel) || (pl.elabel_equal(e1label,elabel) && b))
-		    break;
-	    }
-	}
-    }
+    // -----------------------------------------------------
+    //			BckEdgeIterator
+    // -----------------------------------------------------
+    template<class Policy, class OnFalse = DoNothing>
+    class BckEdgeIterator
+	: public EdgeExtensionPredIterator<Policy, BackwardEdgePred<Policy>, OnFalse>
+    {
+	typedef BackwardEdgePred<Policy> Pred;
+	typedef EdgeExtensionPredIterator<Policy, Pred, OnFalse> Base;
+    public:
+	BckEdgeIterator(const Edge<Policy>& e1,
+			const Edge<Policy>& e2,
+			const SBG<Policy>& sbg,
+			const Policy& pl,
+			OnFalse onfalse = DoNothing())
+	    :Base(e2.vi_to, sbg, pl,
+		  Pred(sbg, pl, e1, e2),
+		  onfalse) {}
+    };
+
+    // -----------------------------------------------------
+    //			FwdPureEdgeIterator
+    // -----------------------------------------------------
+    template<class Policy, class OnFalse = DoNothing>
+    class FwdPureEdgeIterator
+	: public EdgeExtensionPredIterator<Policy, ForwardPureEdgePred<Policy>, OnFalse>
+    {
+	typedef ForwardPureEdgePred<Policy> Pred;
+	typedef EdgeExtensionPredIterator<Policy, Pred, OnFalse> Base;
+    public:
+	FwdPureEdgeIterator(const Edge<Policy>& e,
+			    typename Policy::vertex_label_ref_t minlabel,
+			    const SBG<Policy>& sbg,
+			    const Policy& pl,
+			    OnFalse onfalse = DoNothing())
+	    :Base(e.vi_to, sbg, pl,
+		  Pred(sbg, pl, minlabel),
+		  onfalse) {}
+    };
+    
+
+    // -----------------------------------------------------
+    //			FwdRmpathEdgeIterator
+    // -----------------------------------------------------
+    template<class Policy, class OnFalse = DoNothing>
+    class FwdRmpathEdgeIterator
+	: public EdgeExtensionPredIterator<Policy, ForwardRmpathEdgePred<Policy>, OnFalse>
+    {
+	typedef ForwardRmpathEdgePred<Policy> Pred;
+	typedef EdgeExtensionPredIterator<Policy, Pred, OnFalse> Base;
+    public:
+	FwdRmpathEdgeIterator(const Edge<Policy>& e,
+			      typename Policy::vertex_label_ref_t minlabel,
+			      const SBG<Policy>& sbg,
+			      const Policy& pl,
+			      OnFalse onfalse = DoNothing())
+	    :Base(e.vi_from, sbg, pl,
+		  Pred(sbg, pl, minlabel, e),
+		  onfalse) {}
+    };
 
 
     // *****************************************************************************
@@ -560,15 +662,19 @@ namespace gSpan
     {
 	Vlabel_less<Policy> vl_less(pl);
 	Elabel_less<Policy> el_less(pl);
-		
+	
 	typename boost::graph_traits<typename Policy::graph_t>::vertex_iterator v_it, v_itend;
 	for (boost::tie(v_it,v_itend) = vertices(g); v_it != v_itend; ++v_it)
 	{
 	    vlab_count(pl.vdlabel(*v_it,g));
-	    for (typename EdgeIteratorSelector<Policy>::Type iter(*v_it, g, pl);
+	    typedef EdgeIterator<typename Policy::graph_t,
+				 Edge<Policy>,
+				 GetEdge<Policy> > EIter;
+
+	    for (EIter iter(*v_it, g, GetEdge<Policy>(pl,g));
 		 !iter.is_end(); iter.increment())
 	    {
-		Edge<Policy> e = iter.get_edge();
+		Edge<Policy> e = iter.edge();
 		typename Policy::vertex_label_ref_t vl_from = pl.vilabel(e.vi_from, g);
 		typename Policy::vertex_label_ref_t vl_to   = pl.vilabel(e.vi_to, g);
 		typename Policy::edge_label_ref_t el        = pl.eilabel(e.ei, g);
@@ -576,7 +682,7 @@ namespace gSpan
 		assert(! pl.void_vlabel(vl_from));
 		assert(! pl.void_vlabel(vl_to));
 
-		mapped_val(m, vl_from, el, vl_to, el_less, vl_less).push_back(SBG<Policy>(&g, e));
+		mapped_val(m, vl_from, el, vl_to, el_less, vl_less).push(SBG<Policy>(&g, e));
 	    }
 	}
     }
@@ -600,8 +706,8 @@ namespace gSpan
 
 	// --------------------------------------------------------------
 	// enumerate
-	typedef typename MapTraits<Policy>::Map_EL_P    BckEdges;
-	typedef typename MapTraits<Policy>::Map_EL_VL_P FwdEdges;
+	typedef typename MapTraits<Policy>::Map_EL_P    BEdges;
+	typedef typename MapTraits<Policy>::Map_EL_VL_P FEdges;
 
 	RMPath rmpath(dfsc_min);
 	VI maxtoc = dfsc_min[rmpath.rightmost()].vi_to;
@@ -609,20 +715,21 @@ namespace gSpan
 	// backward
 	{
 	    Elabel_less<Policy> el_less(pl);
-	    BckEdges bck_edges(el_less);
+	    BEdges b_edges(el_less);
 	    VI newto = pl.void_vertex_index();
 	    bool flg = false;
-	    for (unsigned int i = 0; !flg && i < rmpath.size() - 1; ++i)
+	    for (int i = 0; !flg && i < rmpath.size() - 1; ++i)
 	    {
 		BOOST_FOREACH(const SBG& sbg, projected)
 		{
 		    const typename Policy::graph_t& g = *sbg.get_graph();
-		    BackwardEdgeIterator<Policy> iter(sbg[rmpath[i]], sbg[rmpath.rightmost()], sbg, pl);
+		    BckEdgeIterator<Policy> iter(sbg[rmpath[i]],
+						 sbg[rmpath.rightmost()], sbg, pl);
 		    if (!iter.is_end())
 		    {
-			const Edge& e = iter.get_edge();
+			const Edge& e = iter.edge();
 			ELR el = pl.eilabel(e.ei,g);
-			mapped_val(bck_edges, el).push_back(SBG(&sbg, e));
+			mapped_val(b_edges, el).push(SBG(&sbg, e));
 			newto = dfsc_min[rmpath[i]].vi_from;
 			flg = true;
 		    }
@@ -631,7 +738,7 @@ namespace gSpan
 
 	    if (flg)
 	    {
-		typename BckEdges::const_iterator i1 = bck_edges.begin();
+		typename BEdges::const_iterator i1 = b_edges.begin();
 		dfsc_min.push_back(EdgeCode(maxtoc, newto, pl.void_vlabel(), i1->first, pl.void_vlabel()));
 		return project_is_min(i1->second, dfsc_min, dfsc_tested, pl);
 	    }
@@ -641,7 +748,7 @@ namespace gSpan
 	{
 	    Elabel_less<Policy> el_less(pl);
 	    Vlabel_less<Policy> vl_less(pl);
-	    FwdEdges fwd_edges(el_less);
+	    FEdges f_edges(el_less);
 	    VLR minlabel = dfsc_min[0].vl_from;
 	    VI newfrom = pl.void_vertex_index();
 	    bool flg = false;
@@ -650,31 +757,32 @@ namespace gSpan
 	    BOOST_FOREACH(const SBG& sbg, projected)
 	    {
 		const typename Policy::graph_t& g = *sbg.get_graph();
-		for (ForwardPureEdgeIterator<Policy> iter(sbg[rmpath.rightmost()], minlabel, sbg, pl);
-		     !iter.is_end(); iter.next())
+
+		for (FwdPureEdgeIterator<Policy> iter(sbg[rmpath.rightmost()], minlabel, sbg, pl);
+		     !iter.is_end(); iter.increment())
 		{
-		    const Edge& e = iter.get_edge();
+		    const Edge& e = iter.edge();
 		    ELR el = pl.eilabel(e.ei,g);
 		    VLR vl = pl.vilabel(e.vi_to,g);
-		    mapped_val(fwd_edges, el, vl, vl_less).push_back(SBG(&sbg, e));
+		    mapped_val(f_edges, el, vl, vl_less).push(SBG(&sbg, e));
 		    newfrom = maxtoc;
 		    flg = true;
 		}
 	    }
-
+	    
 	    // forward rmpath
 	    for (int i = rmpath.size()-1; !flg && i >= 0; --i)
 	    {
 		BOOST_FOREACH(const SBG& sbg, projected)
 		{
 		    const typename Policy::graph_t& g = *sbg.get_graph();
-		    for (ForwardRMPathEdgeIterator<Policy> iter(sbg[rmpath[i]], minlabel, sbg, pl);
-			 !iter.is_end(); iter.next())
+		    for (FwdRmpathEdgeIterator<Policy> iter(sbg[rmpath[i]], minlabel, sbg, pl);
+			 !iter.is_end(); iter.increment())
 		    {
-			const Edge& e = iter.get_edge();
+			const Edge& e = iter.edge();
 			ELR el = pl.eilabel(e.ei,g);
 			VLR vl = pl.vilabel(e.vi_to,g);
-			mapped_val(fwd_edges, el, vl, vl_less).push_back(SBG(&sbg, e));
+			mapped_val(f_edges, el, vl, vl_less).push(SBG(&sbg, e));
 			newfrom = dfsc_min[rmpath[i]].vi_from;
 			flg = true;
 		    }
@@ -683,8 +791,8 @@ namespace gSpan
 
 	    if (flg)
 	    {
-		typename FwdEdges::const_iterator i1 = fwd_edges.begin();
-		typename FwdEdges::mapped_type::const_iterator i2 = i1->second.begin();
+		typename FEdges::const_iterator i1 = f_edges.begin();
+		typename FEdges::mapped_type::const_iterator i2 = i1->second.begin();
 		dfsc_min.push_back(EdgeCode(newfrom, maxtoc+1, pl.void_vlabel(), i1->first, i2->first));
 		return project_is_min(i2->second, dfsc_min, dfsc_tested, pl);
 	    }
@@ -714,16 +822,11 @@ namespace gSpan
     }
 
 
+    // ================================================================
+    //                   gspan_detail
+    // ================================================================
     namespace gspan_detail
     {
-	template<class Policy>
-	int support(const Projected<Policy>& projected, const Policy& pl)
-	{
-	    std::set<const typename Policy::graph_t*> n;
-	    BOOST_FOREACH(const SBG<Policy>& sbg, projected) n.insert(sbg.get_graph());
-	    return n.size();
-	}
-
 	template<class Policy, class Output>
 	void project(const Projected<Policy>& projected,
 		     DFSCode<Policy>& dfsc,
@@ -738,7 +841,7 @@ namespace gSpan
 	    typedef Edge<Policy> Edge;
 	    typedef EdgeCode<Policy> EdgeCode;
 
-	    int sup = support(projected, pl);
+	    int sup = projected.mgsbg_size();
 	    if (sup < minsup)
 		return;
 
@@ -749,15 +852,15 @@ namespace gSpan
 
 	    // --------------------------------------------------------------
 	    // enumerate
-	    typedef typename MapTraits<Policy>::Map_VI_EL_P    BckEdges;
-	    typedef typename MapTraits<Policy>::Map_VI_EL_VL_P FwdEdges;
+	    typedef typename MapTraits<Policy>::Map_VI_EL_P    BEdges;
+	    typedef typename MapTraits<Policy>::Map_VI_EL_VL_P FEdges;
 
 	    std::less<VI> vi_less;
 	    Elabel_less<Policy> el_less(pl);
 	    Vlabel_less<Policy> vl_less(pl);
 
-	    BckEdges bck_edges(vi_less);
-	    FwdEdges fwd_edges(vi_less);
+	    BEdges b_edges(vi_less);
+	    FEdges f_edges(vi_less);
 
 	    RMPath rmpath(dfsc);
 
@@ -769,53 +872,54 @@ namespace gSpan
 		const typename Policy::graph_t& g = *sbg.get_graph();
 
 		// backward
-		for (unsigned int i = 0; i < rmpath.size() - 1; ++i)
+		for (int i = 0; i < rmpath.size() - 1; ++i)
 		{
-		    BackwardEdgeIterator<Policy> iter(sbg[rmpath[i]], sbg[rmpath.rightmost()], sbg, pl);
+		    BckEdgeIterator<Policy> iter(sbg[rmpath[i]], sbg[rmpath.rightmost()], sbg, pl);
 		    if (!iter.is_end())
 		    {
-			const Edge& e = iter.get_edge();
+			const Edge& e = iter.edge();
 			VI vi  = dfsc[rmpath[i]].vi_from;
 			ELR el = pl.eilabel(e.ei,g);
-			mapped_val(bck_edges, vi, el, el_less).push_back(SBG(&sbg, e));
-
+			mapped_val(b_edges, vi, el, el_less).push(SBG(&sbg, e));
+/*
 			// virtual forward pure
 			VLR vl_to = pl.vilabel(e.vi_to,g);
-			mapped_val(fwd_edges, maxtoc, el, vl_to, el_less, vl_less).push_back(SBG(&sbg, e));
+			mapped_val(f_edges, maxtoc, el, vl_to, el_less, vl_less).push(SBG(&sbg, e));
 
 			// virtual forward rmpath
 			VLR vl_from = pl.vilabel(e.vi_from,g);
-			mapped_val(fwd_edges, vi, el, vl_from, el_less, vl_less).push_back(SBG(&sbg, e));
+			mapped_val(f_edges, vi, el, vl_from, el_less, vl_less).push(SBG(&sbg, e));
+*/
 		    }
 		}
 
 		// forward
-		for (ForwardPureEdgeIterator<Policy> iter(sbg[rmpath.rightmost()], minlabel, sbg, pl);
-		     !iter.is_end(); iter.next())
+		for (FwdPureEdgeIterator<Policy> iter(sbg[rmpath.rightmost()], minlabel, sbg, pl);
+		     !iter.is_end(); iter.increment())
 		{
-		    const Edge& e = iter.get_edge();
+		    const Edge& e = iter.edge();
 		    ELR el = pl.eilabel(e.ei,g);
 		    VLR vl = pl.vilabel(e.vi_to,g);
-		    mapped_val(fwd_edges, maxtoc, el, vl, el_less, vl_less).push_back(SBG(&sbg, e));
+		    mapped_val(f_edges, maxtoc, el, vl, el_less, vl_less).push(SBG(&sbg, e));
 		}
 
 		for (int i = rmpath.size()-1; i >= 0; --i)
-		    for (ForwardRMPathEdgeIterator<Policy> iter(sbg[rmpath[i]], minlabel, sbg, pl);
-			 !iter.is_end(); iter.next())
+		    for (FwdRmpathEdgeIterator<Policy> iter(sbg[rmpath[i]], minlabel, sbg, pl);
+			 !iter.is_end(); iter.increment())
 		    {
-			const Edge& e = iter.get_edge();
+			const Edge& e = iter.edge();
 			VI vi  = dfsc[rmpath[i]].vi_from;
 			ELR el = pl.eilabel(e.ei,g);
 			VLR vl = pl.vilabel(e.vi_to,g);
-			mapped_val(fwd_edges, vi, el, vl, el_less, vl_less).push_back(SBG(&sbg, e));
+			mapped_val(f_edges, vi, el, vl, el_less, vl_less).push(SBG(&sbg, e));
 		    }
 	    }
 
 	    // --------------------------------------------------------------
 	    // recursive process SBG children
 	    // backward
-	    for (typename BckEdges::const_iterator it1 = bck_edges.begin(); it1 != bck_edges.end(); ++it1)
-		for (typename BckEdges::mapped_type::const_iterator it2 = it1->second.begin();
+	    for (typename BEdges::const_iterator it1 = b_edges.begin(); it1 != b_edges.end(); ++it1)
+		for (typename BEdges::mapped_type::const_iterator it2 = it1->second.begin();
 		     it2 != it1->second.end(); ++it2)
 		{
 		    EdgeCode ec(maxtoc, it1->first, pl.void_vlabel(), it2->first, pl.void_vlabel());
@@ -825,10 +929,10 @@ namespace gSpan
 		}
 
 	    // forward
-	    typedef typename FwdEdges::const_reverse_iterator FwdI1;
-	    typedef typename FwdEdges::mapped_type::const_iterator FwdI2;
-	    typedef typename FwdEdges::mapped_type::mapped_type::const_iterator FwdI3;
-	    for (FwdI1 i1 = fwd_edges.rbegin(); i1 != fwd_edges.rend(); ++i1)
+	    typedef typename FEdges::const_reverse_iterator FwdI1;
+	    typedef typename FEdges::mapped_type::const_iterator FwdI2;
+	    typedef typename FEdges::mapped_type::mapped_type::const_iterator FwdI3;
+	    for (FwdI1 i1 = f_edges.rbegin(); i1 != f_edges.rend(); ++i1)
 		for (FwdI2 i2 = i1->second.begin(); i2 != i1->second.end(); ++i2)
 		    for (FwdI3 i3 = i2->second.begin(); i3 != i2->second.end(); ++i3)
 		    {
@@ -842,133 +946,377 @@ namespace gSpan
 
     } // end: namespace gspan_detail
 
+    // ================================================================
+    //                   closegraph_detail
+    // ================================================================
     namespace closegraph_detail
     {
 	template<class Policy>
-	int support(const Projected<Policy>& projected, const Policy& pl)
+	bool fail_early_termination_sbg(const SBG<Policy>& s, const Policy& pl)
 	{
-	    std::set<const typename Policy::graph_t*> n;
-	    BOOST_FOREACH(const SBG<Policy>& sbg, projected) n.insert(sbg.get_graph());
-	    return n.size();
+
+	    typedef typename Policy::vertex_index_t VI;
+	    bool failure = false;
+	    const typename Policy::graph_t& g = *s.get_graph();
+	    std::set<VI> visited;
+	    std::queue<VI> q;
+	    VI vi_to = s.last_edge().vi_to;
+	    visited.insert(vi_to);
+
+	    for (EdgeIter<Policy> iter(vi_to, g, pl); !iter.is_end(); iter.increment())
+	    {
+		const Edge<Policy>& e = iter.edge();
+		if (s.has_edge(e))
+		    continue;
+		if (s.has_vertex(e.vi_to))
+		{
+		    failure = true;
+		    break;
+		}
+		else
+		{
+		    q.push(e.vi_to);
+		    visited.insert(e.vi_to);
+		}
+	    }
+
+	    while (!failure && !q.empty())
+	    {
+		VI vi = q.front(); q.pop();
+		for (EdgeIter<Policy> iter(vi, g, pl); !iter.is_end(); iter.increment())
+		{
+		    const Edge<Policy>& e = iter.edge();
+		    VI vj = e.vi_to;
+		    
+		    if (visited.count(vj) == 0)
+		    {
+			q.push(vj);
+			visited.insert(vj);
+		    }
+
+		    if (s.has_vertex(vj))
+		    {
+			failure = true;
+			break;
+		    }
+		    
+		}
+	    }
+	    return failure;
 	}
 
+	template<class Policy>
+	bool fail_early_termination(const Projected<Policy>* p, const Policy& pl)
+	{
+	    for (typename Projected<Policy>::const_iterator i = p->begin(); i != p->end(); ++i)
+		if (fail_early_termination_sbg(*i, pl))
+		    return true;
+	    return false;
+	}
+
+	template<class Policy>
+	bool test_min_support_term(const DFSCode<Policy>& dfsc,
+				   Projected<Policy>* projected,
+				   const Projected<Policy>* prev,
+				   typename MapTraits<Policy>::Map_VL_EL_VL_P& xedges,
+				   bool& brloop,
+				   int minsup,
+				   std::vector<bool>& early_termin,
+				   std::vector<bool>& closed,
+				   const Policy& pl)
+	{
+	    assert(dfsc.size() > 1);
+	    assert(dfsc.size() == early_termin.size());
+
+	    if (! is_min(dfsc, pl))
+	    {
+		Elabel_less<Policy> el_less(pl);
+		Vlabel_less<Policy> vl_less(pl);
+		const EdgeCode<Policy>& ec = dfsc.back();
+		mapped_val(xedges, ec.vl_from, ec.el, ec.vl_to, el_less, vl_less).merge(*projected);
+		return false;
+	    }
+
+	    // early termination
+	    if (early_termin[dfsc.size() - 2])
+	    {
+		brloop = true;
+		return false;
+	    }
+	    
+	    if (projected->mgsbg_size() < minsup)
+		return false;
+
+	    if (projected->mgsbg_size() == prev->mgsbg_size())
+		closed[dfsc.size()-2] = false;
+
+	    // detect early termination	    
+	    if (projected->size() == prev->size())
+	    {
+		if (!dfsc.back().is_forward() || !fail_early_termination(projected, pl))
+		    early_termin.at(dfsc.size()-2) = true;
+	    }
+	    return true;
+	}
+
+
+	// for one vertex as root
+	// test support and set early termination
+	// return true if support is sufficient
+	template<class Policy>
+	bool test_support_term(const DFSCode<Policy>& dfsc,
+			       const Projected<Policy>* projected,
+			       const std::map<typename Policy::vertex_label_t, int>& vlab_count,
+			       int minsup,
+			       std::map<typename Policy::vertex_label_t, bool>& early_termin_1v,
+			       const Policy& pl)
+	{
+	    assert(dfsc.size() == 1);
+
+	    int sup = projected->mgsbg_size();
+	    if (sup < minsup)
+		return false;
+	    const EdgeCode<Policy>& ec = dfsc.back();
+	    if (projected->size() == vlab_count.find(ec.vl_from)->second)
+		early_termin_1v[ec.vl_from] = true;
+	    if (projected->size() == vlab_count.find(ec.vl_to)->second)
+		early_termin_1v[ec.vl_to] = true;
+	    return true;
+	}
+
+
+	template<class Policy>
+	class ProjectedInserter
+	{
+	    typedef typename MapTraits<Policy>::Map_VL_EL_VL_P XEdges;
+	    typedef typename Policy::edge_index_t EI;
+	    XEdges& xedges_;
+	    const SBG<Policy>* parent_;
+	    const Policy& pl_;
+	    std::set<EI>& extension_;
+	public:
+	    ProjectedInserter(XEdges& xedges,  std::set<EI>& extension, const SBG<Policy>* parent, const Policy& pl)
+		:xedges_(xedges), parent_(parent), pl_(pl), extension_(extension) {}
+	    void operator()	(const Edge<Policy>& e)
+		{
+		    if (extension_.count(e.ei) == 0)
+		    {
+			const typename Policy::graph_t& g = *parent_->get_graph();
+			Elabel_less<Policy> el_less(pl_);
+			Vlabel_less<Policy> vl_less(pl_);
+			typename Policy::vertex_label_ref_t vl_from = pl_.vilabel(e.vi_from, g);
+			typename Policy::vertex_label_ref_t vl_to   = pl_.vilabel(e.vi_to, g);
+			typename Policy::edge_label_ref_t el        = pl_.eilabel(e.ei, g);
+			mapped_val(xedges_, vl_from, el, vl_to, el_less, vl_less).push(SBG<Policy>(parent_, e));
+			extension_.insert(e.ei);
+		    }
+		}
+	};
+
+ 
 	template<class Policy, class Output>
-	void project(const Projected<Policy>& projected,
+	void project(const Projected<Policy>* projected,
+		     const Projected<Policy>* prev_projected,
 		     DFSCode<Policy>& dfsc,
 		     int minsup,
 		     const Policy& pl,
-		     Output& result)
+		     Output& result,
+		     std::vector<bool>& early_termin,
+		     std::vector<bool>& closed)
 	{
+#ifdef DEBUG_PRINT
+	    std::cerr << "=========== project() ===========\n"
+		      << "DFSC: " << dfsc << std::endl
+		      << "P: " << *projected
+		      << "P mgsbg_size = " << projected->mgsbg_size() << std::endl << std::endl;
+#endif
+
 	    typedef typename Policy::vertex_index_t VI;
+	    typedef typename Policy::edge_index_t EI;
 	    typedef typename Policy::vertex_label_ref_t VLR;
 	    typedef typename Policy::edge_label_ref_t ELR;
 	    typedef SBG<Policy> SBG;
 	    typedef Edge<Policy> Edge;
 	    typedef EdgeCode<Policy> EdgeCode;
 
-	    int sup = support(projected, pl);
-	    if (sup < minsup)
-		return;
-
-	    if (! is_min(dfsc, pl))
-		return;
-
-	    //report(projected, dfsc, result); 
-
 	    // --------------------------------------------------------------
 	    // enumerate
-	    typedef typename MapTraits<Policy>::Map_VI_EL_P    BckEdges;
-	    typedef typename MapTraits<Policy>::Map_VI_EL_VL_P FwdEdges;
+	    typedef typename MapTraits<Policy>::Map_VI_EL_P    BEdges;
+	    typedef typename MapTraits<Policy>::Map_VI_EL_VL_P FEdges;
+	    typedef typename MapTraits<Policy>::Map_VL_EL_VL_P XEdges;
 
 	    std::less<VI> vi_less;
 	    Elabel_less<Policy> el_less(pl);
 	    Vlabel_less<Policy> vl_less(pl);
 
-	    BckEdges bck_edges(vi_less);
-	    FwdEdges fwd_edges(vi_less);
+	    BEdges b_edges(vi_less);
+	    FEdges f_edges(vi_less);
+	    XEdges x_edges(vl_less);
 
 	    RMPath rmpath(dfsc);
-
 	    VI maxtoc   = dfsc[rmpath.rightmost()].vi_to;
 	    VLR minlabel = dfsc[0].vl_from;
+	    const int NUM_EDGES = dfsc.size(); 
 
-	    BOOST_FOREACH(const SBG& sbg, projected)
+	    BOOST_FOREACH(const SBG& sbg, *projected)
 	    {
+		assert(NUM_EDGES == sbg.size());
+		std::vector<bool> edge_status(NUM_EDGES, false); // true means rmpath edge
+		for (int i = 0; i < rmpath.size(); ++i)
+		    edge_status[rmpath[i]] = true;
+
+		std::set<EI> extension;
+
+		typedef ProjectedInserter<Policy> XchIns;
+		XchIns xch_ins(x_edges, extension, &sbg, pl);
 		const typename Policy::graph_t& g = *sbg.get_graph();
-
-		// backward
-		for (unsigned int i = 0; i < rmpath.size() - 1; ++i)
+		
+		// -----------------------------------
+		// descove RMPath extension edges
+		// -----------------------------------
+		for (int i = 0; i < NUM_EDGES; ++i)
 		{
-		    BackwardEdgeIterator<Policy> iter(sbg[rmpath[i]], sbg[rmpath.rightmost()], sbg, pl);
-		    if (!iter.is_end())
+		    if (! edge_status[i])
+			continue;
+
+		    // backward
+		    if (rmpath.rightmost() != i)
 		    {
-			const Edge& e = iter.get_edge();
-			VI vi  = dfsc[rmpath[i]].vi_from;
-			ELR el = pl.eilabel(e.ei,g);
-			mapped_val(bck_edges, vi, el, el_less).push_back(SBG(&sbg, e));
-
-			// virtual forward pure
-			VLR vl_to = pl.vilabel(e.vi_to,g);
-			mapped_val(fwd_edges, maxtoc, el, vl_to, el_less, vl_less).push_back(SBG(&sbg, e));
-
-			// virtual forward rmpath
-			VLR vl_from = pl.vilabel(e.vi_from,g);
-			mapped_val(fwd_edges, vi, el, vl_from, el_less, vl_less).push_back(SBG(&sbg, e));
+			BckEdgeIterator<Policy, XchIns> iter(sbg[i], sbg[rmpath.rightmost()], sbg, pl, xch_ins);
+			if (! iter.is_end())
+			{
+			    const Edge& e = iter.edge();
+			    VI vi  = dfsc[i].vi_from;
+			    ELR el = pl.eilabel(e.ei,g);
+			    mapped_val(b_edges, vi, el, el_less).push(SBG(&sbg, e));
+			    extension.insert(e.ei);
+			}
 		    }
-		}
 
-		// forward
-		for (ForwardPureEdgeIterator<Policy> iter(sbg[rmpath.rightmost()], minlabel, sbg, pl);
-		     !iter.is_end(); iter.next())
-		{
-		    const Edge& e = iter.get_edge();
-		    ELR el = pl.eilabel(e.ei,g);
-		    VLR vl = pl.vilabel(e.vi_to,g);
-		    mapped_val(fwd_edges, maxtoc, el, vl, el_less, vl_less).push_back(SBG(&sbg, e));
-		}
-
-		for (int i = rmpath.size()-1; i >= 0; --i)
-		    for (ForwardRMPathEdgeIterator<Policy> iter(sbg[rmpath[i]], minlabel, sbg, pl);
-			 !iter.is_end(); iter.next())
+		    // forward from rmpath
+		    for (FwdRmpathEdgeIterator<Policy, XchIns> iter(sbg[i], minlabel, sbg, pl, xch_ins);
+			 !iter.is_end(); iter.increment())
 		    {
-			const Edge& e = iter.get_edge();
-			VI vi  = dfsc[rmpath[i]].vi_from;
+			const Edge& e = iter.edge();
+			VI vi  = dfsc[i].vi_from;
 			ELR el = pl.eilabel(e.ei,g);
 			VLR vl = pl.vilabel(e.vi_to,g);
-			mapped_val(fwd_edges, vi, el, vl, el_less, vl_less).push_back(SBG(&sbg, e));
+			mapped_val(f_edges, vi, el, vl, el_less, vl_less).push(SBG(&sbg, e));
+			extension.insert(e.ei);
 		    }
+		}
+		
+		// forward from right most
+		for (FwdPureEdgeIterator<Policy, XchIns> iter(sbg[rmpath.rightmost()], minlabel, sbg, pl, xch_ins);
+		     !iter.is_end(); iter.increment())
+		{
+		    const Edge& e = iter.edge();
+		    ELR el = pl.eilabel(e.ei,g);
+		    VLR vl = pl.vilabel(e.vi_to,g);
+		    mapped_val(f_edges, maxtoc, el, vl, el_less, vl_less).push(SBG(&sbg, e));
+		    extension.insert(e.ei);
+		}
+
+		// -----------------------------------
+		// descove NOT RMPath extension edges
+		// -----------------------------------
+		for (int i = 0; i < NUM_EDGES; ++i)
+		{
+		    if (edge_status[i])
+			continue;
+		    for (EdgeExtensionIterator<Policy> iter(sbg[i].vi_from, sbg, pl); !iter.is_end(); iter.increment())
+			xch_ins(iter.edge());
+		    for (EdgeExtensionIterator<Policy> iter(sbg[i].vi_to, sbg, pl); !iter.is_end(); iter.increment())
+			xch_ins(iter.edge());
+		}
 	    }
+	    
+	    bool brloop = false;
 
 	    // --------------------------------------------------------------
 	    // recursive process SBG children
 	    // backward
-	    for (typename BckEdges::const_iterator it1 = bck_edges.begin(); it1 != bck_edges.end(); ++it1)
-		for (typename BckEdges::mapped_type::const_iterator it2 = it1->second.begin();
-		     it2 != it1->second.end(); ++it2)
+	    brloop = false;
+	    for (typename BEdges::iterator i1 = b_edges.begin(); i1 != b_edges.end() && !brloop; ++i1)
+		for (typename BEdges::mapped_type::iterator i2 = i1->second.begin();
+		     i2 != i1->second.end() && !brloop; ++i2)
 		{
-		    EdgeCode ec(maxtoc, it1->first, pl.void_vlabel(), it2->first, pl.void_vlabel());
+		    VI bck_to = i1->first;
+		    EdgeCode ec(maxtoc, bck_to, pl.void_vlabel(), i2->first, pl.void_vlabel());
 		    dfsc.push_back(ec);
-		    project(it2->second, dfsc, minsup, pl, result);
+		    early_termin.push_back(false);
+		    closed.push_back(true);
+
+		    if (test_min_support_term(dfsc, &i2->second, projected, x_edges,
+					      brloop, minsup, early_termin, closed, pl))
+		    {
+			project(&i2->second, projected, dfsc, minsup, pl, result,
+				early_termin, closed);
+		    }
+
+		    closed.pop_back();
+		    early_termin.pop_back();
 		    dfsc.pop_back();
 		}
 
 	    // forward
-	    typedef typename FwdEdges::const_reverse_iterator FwdI1;
-	    typedef typename FwdEdges::mapped_type::const_iterator FwdI2;
-	    typedef typename FwdEdges::mapped_type::mapped_type::const_iterator FwdI3;
-	    for (FwdI1 i1 = fwd_edges.rbegin(); i1 != fwd_edges.rend(); ++i1)
-		for (FwdI2 i2 = i1->second.begin(); i2 != i1->second.end(); ++i2)
-		    for (FwdI3 i3 = i2->second.begin(); i3 != i2->second.end(); ++i3)
+	    brloop = false;
+	    typedef typename FEdges::reverse_iterator FwdI1;
+	    typedef typename FEdges::mapped_type::iterator FwdI2;
+	    typedef typename FEdges::mapped_type::mapped_type::iterator FwdI3;
+	    for (FwdI1 i1 = f_edges.rbegin(); i1 != f_edges.rend() && !brloop; ++i1)
+		for (FwdI2 i2 = i1->second.begin(); i2 != i1->second.end() && !brloop; ++i2)
+		    for (FwdI3 i3 = i2->second.begin(); i3 != i2->second.end() && !brloop; ++i3)
 		    {
 			EdgeCode ec(i1->first, maxtoc+1, pl.void_vlabel(), i2->first, i3->first);
 			dfsc.push_back(ec);
-			project(i3->second, dfsc, minsup, pl, result);
+			early_termin.push_back(false);
+			closed.push_back(true);
+
+			if (test_min_support_term(dfsc, &i3->second, projected, x_edges,
+						  brloop, minsup, early_termin, closed, pl))
+			{
+			    project(&i3->second, projected, dfsc, minsup, pl, result,
+				    early_termin, closed);
+			}
+			closed.pop_back();
+			early_termin.pop_back();
 			dfsc.pop_back();
 		    }
-	    return;
+
+	    // if current dfsc may be extented by x_edges to any supergraph with the same support,
+	    // then dfsc is not closed
+	    bool x_closed = true;
+#ifdef DEBUG_PRINT
+	    std::cerr << "Xedges: " << x_edges.size() << std::endl;
+	    std::cerr << "P: " << *projected << std::endl;
+#endif
+	    typedef typename XEdges::const_iterator XI1;
+	    typedef typename XEdges::mapped_type::const_iterator XI2;
+	    typedef typename XEdges::mapped_type::mapped_type::const_iterator XI3;
+	    for (XI1 i1 = x_edges.begin(); i1 != x_edges.end() && !brloop; ++i1)
+		for (XI2 i2 = i1->second.begin(); i2 != i1->second.end() && !brloop; ++i2)
+		    for (XI3 i3 = i2->second.begin(); i3 != i2->second.end() && !brloop; ++i3)
+		    {
+#ifdef DEBUG_PRINT
+			std::cerr << i3->second << " mgsbg_size=" << i3->second.mgsbg_size() << std::endl;
+#endif
+			if (i3->second.mgsbg_size() == projected->mgsbg_size())
+			{
+			    x_closed = false;
+			    brloop = true;
+			    break;
+			}
+		    }
+
+	    
+	    // bottom is reached
+	    if (closed.back() && x_closed)
+		result(dfsc, *projected);
 	}
 	
     } // end: namespace closegraph_detail
+
 
     template<class TGraphIterator, class Output, class Policy>
     void gspan(TGraphIterator tg_begin,
@@ -997,7 +1345,9 @@ namespace gSpan
 		{
 		    EdgeCode<Policy> ec(0, 1, i1->first, i2->first, i3->first);
 #ifdef DEBUG_PRINT
-		    std::cerr << "gspan(): top level iteration with edgecode: " << ec << std::endl;
+		    std::cerr << "================ "
+			      << "TOP LEVEL iteration with EDGECODE: " << ec
+			      << " ================" << std::endl;
 #endif
 		    dfsc.push_back(ec);
 		    gspan_detail::project(i3->second, dfsc, minsup, pl, result);
@@ -1013,6 +1363,9 @@ namespace gSpan
 		    const Policy& pl,
 		    Output& result)
     {
+
+	using namespace closegraph_detail;
+
 	std::map<typename Policy::vertex_label_t, int> vlab_count;
 	MapValueCount<std::map<typename Policy::vertex_label_t, int> > mvc(vlab_count);
 
@@ -1024,22 +1377,54 @@ namespace gSpan
 	    enum_one_edges(root, *tg_begin, pl, mvc);
 
 	DFSCode<Policy> dfsc;
+	std::map<typename Policy::vertex_label_t, bool> early_termin_1v;
+	std::vector<bool> early_termin;
+	std::vector<bool> closed;
 	
 	typedef typename M3::const_iterator I1;
 	typedef typename M3::mapped_type::const_iterator I2;
 	typedef typename M3::mapped_type::mapped_type::const_iterator I3;
 	for (I1 i1 = root.begin(); i1 != root.end(); ++i1)
-	    for (I2 i2 = i1->second.begin(); i2 != i1->second.end(); ++i2)
-		for (I3 i3 = i2->second.begin(); i3 != i2->second.end(); ++i3)
-		{
-		    EdgeCode<Policy> ec(0, 1, i1->first, i2->first, i3->first);
+	{
+	    bool break_loop = false;
+	    if (early_termin_1v[i1->first])
+	    {
 #ifdef DEBUG_PRINT
-		    std::cerr << "closegraph(): top level iteration with edgecode: " << ec << std::endl;
+		std::cerr << "Early Termination for edgecode beginning with " << i1->first << std::endl;
 #endif
+	    	break_loop = true;
+	    }
+
+	    for (I2 i2 = i1->second.begin(); i2 != i1->second.end() && !break_loop; ++i2)
+		for (I3 i3 = i2->second.begin(); i3 != i2->second.end() && !break_loop; ++i3)
+		{
+		    if (early_termin_1v[i1->first]) // goto to first loop
+		    {
+			break_loop = true;
+			break;
+		    }
+
+		    EdgeCode<Policy> ec(0, 1, i1->first, i2->first, i3->first);
 		    dfsc.push_back(ec);
-		    closegraph_detail::project(i3->second, dfsc, minsup, pl, result);
+		    early_termin.push_back(false);
+		    closed.push_back(true);
+
+#ifdef DEBUG_PRINT
+		    std::cerr << "================ "
+			      << "TOP LEVEL iteration with EDGECODE: " << ec
+			      << " ================" << std::endl;
+#endif
+		    if (test_support_term(dfsc, &i3->second, vlab_count, minsup, early_termin_1v, pl))
+		    {
+			const Projected<Policy>* nullp = 0;
+			project(&i3->second, nullp, dfsc, minsup, pl, result,
+				early_termin, closed);
+		    }
+		    closed.pop_back();
+		    early_termin.pop_back();
 		    dfsc.pop_back();
 		}
+	}
     }
 
 } // end: namespace gSpan
