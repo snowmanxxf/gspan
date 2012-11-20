@@ -1,7 +1,7 @@
 HEADERS := graph_policy.hpp gspan.hpp edge_iterator.hpp
 SOURCES := main.cpp
 
-CFLAGS := -O3 -g -Wall
+CFLAGS := -O0 -g -Wall
 CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL
 #CFLAGS += -DDEBUG_PRINT
 

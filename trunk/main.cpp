@@ -22,25 +22,34 @@ typedef gSpan::DFSCode<Policy> DFSCode;
 typedef gSpan::SBG<Policy> SBG;
 typedef gSpan::Projected<Policy> Projected;
 
+std::vector<std::string> result;
+bool f;
+
 std::istream& contruct_dfsc(DFSCode& dfsc, std::string& tr_name, std::istream& is)
 {
     std::map<VI, VL> vlabels;
-
+    
     char line[1024];
     while (true)
     {
         std::streampos pos = is.tellg();
-        if (! is.getline(line, 1024))
-            break;
 
-        std::vector<std::string> result;       
-        char* p = strtok(line, " \t");
-        while (p)
-        {
-            result.push_back(std::string(p));
-            p = strtok(0, " \t");
-        }
-        
+	if (!f)
+	{
+	    if (! is.getline(line, 1024))
+		break;
+
+	    result.clear();
+	    char* p = strtok(line, " \t");
+	    while (p)
+	    {
+		result.push_back(std::string(p));
+		p = strtok(0, " \t");
+	    }
+	}        
+	else
+	    f = false;
+
         if (result.empty())
             continue;
 
@@ -48,7 +57,8 @@ std::istream& contruct_dfsc(DFSCode& dfsc, std::string& tr_name, std::istream& i
         {
             if (!dfsc.empty())
             {
-                is.seekg(pos, std::ios_base::beg);
+                //is.seekg(pos, std::ios_base::beg);
+		f = true;
                 return is;
             }
             

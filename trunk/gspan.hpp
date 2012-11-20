@@ -1,6 +1,11 @@
 #ifndef CLOSEGRAPH_H_
 #define CLOSEGRAPH_H_
 
+#include "edge_iterator.hpp"
+
+#include <boost/graph/graph_traits.hpp>
+#include <boost/foreach.hpp>
+
 #include <cassert>
 #include <iostream>
 #include <vector>
@@ -13,11 +18,9 @@
 #include <memory>
 #include <algorithm>
 
-#include <boost/graph/graph_traits.hpp>
-#include <boost/foreach.hpp>
-
-#define BR asm volatile ("int $3;")
-#include "edge_iterator.hpp"
+#ifndef BR
+#define BR asm volatile ("int3;")
+#endif
 
 namespace gSpan
 {
@@ -561,7 +564,7 @@ namespace gSpan
     //                          Maps
     // *****************************************************************************
     template<class M1>
-    inline typename M1::mapped_type&
+    typename M1::mapped_type&
     mapped_val(M1& mp1key, const typename M1::key_type& k1)
     {
 	typedef typename M1::value_type value_type;
@@ -569,7 +572,7 @@ namespace gSpan
     }
 
     template<class M2>
-    inline typename M2::mapped_type::mapped_type&
+    typename M2::mapped_type::mapped_type&
     mapped_val(M2& mp2key,
 	       const typename M2::key_type& k1,
 	       const typename M2::mapped_type::key_type& k2,
@@ -581,7 +584,7 @@ namespace gSpan
 
 
     template<class M3>
-    inline typename M3::mapped_type::mapped_type::mapped_type&
+    typename M3::mapped_type::mapped_type::mapped_type&
     mapped_val(M3& mp3key,
 	       const typename M3::key_type& k1,
 	       const typename M3::mapped_type::key_type& k2,
@@ -592,6 +595,42 @@ namespace gSpan
 	typedef typename M3::value_type value_type;
 	return mapped_val(mp3key.insert(value_type(k1, typename M3::mapped_type(c2))).first->second, k2, k3, c3);
     }
+
+
+    template<class M4>
+    typename M4::mapped_type::mapped_type::mapped_type::mapped_type&
+    mapped_val(M4& mp4key,
+	       const typename M4::key_type& k1,
+	       const typename M4::mapped_type::key_type& k2,
+	       const typename M4::mapped_type::mapped_type::key_type& k3,
+	       const typename M4::mapped_type::mapped_type::mapped_type::key_type& k4,
+	       const typename M4::mapped_type::key_compare& c2,
+	       const typename M4::mapped_type::mapped_type::key_compare& c3,
+	       const typename M4::mapped_type::mapped_type::mapped_type::key_compare& c4)
+    {
+	typedef typename M4::value_type value_type;
+	return mapped_val(mp4key.insert(value_type(k1, typename M4::mapped_type(c2))).first->second,
+			  k2, k3, k4, c3, c4);
+    }
+
+    template<class M5>
+    typename M5::mapped_type::mapped_type::mapped_type::mapped_type::mapped_type&
+    mapped_val(M5& mp5key,
+	       const typename M5::key_type& k1,
+	       const typename M5::mapped_type::key_type& k2,
+	       const typename M5::mapped_type::mapped_type::key_type& k3,
+	       const typename M5::mapped_type::mapped_type::mapped_type::key_type& k4,
+	       const typename M5::mapped_type::mapped_type::mapped_type::mapped_type::key_type& k5,
+	       const typename M5::mapped_type::key_compare& c2,
+	       const typename M5::mapped_type::mapped_type::key_compare& c3,
+	       const typename M5::mapped_type::mapped_type::mapped_type::key_compare& c4,
+	       const typename M5::mapped_type::mapped_type::mapped_type::mapped_type::key_compare& c5)
+    {
+	typedef typename M5::value_type value_type;
+	return mapped_val(mp5key.insert(value_type(k1, typename M5::mapped_type(c2))).first->second,
+			  k2, k3, k4, k5, c3, c4, c5);
+    }
+
 
     template<class Policy>
     class Vlabel_less
@@ -632,6 +671,9 @@ namespace gSpan
 	typedef map_<VI, std::less<VI>,       Map_EL_P>		Map_VI_EL_P;
 	typedef map_<VI, std::less<VI>,       Map_EL_VL_P>	Map_VI_EL_VL_P;
 	typedef map_<VL, Vlabel_less<Policy>, Map_EL_VL_P>	Map_VL_EL_VL_P;
+
+	typedef map_<VI, std::less<VI>,       Map_VL_EL_VL_P>		Map_VI_VL_EL_VL_P;
+	typedef map_<VI, std::less<VI>,       Map_VI_VL_EL_VL_P>	Map_VI_VI_VL_EL_VL_P;
     };
 
     // *****************************************************************************
@@ -1018,7 +1060,7 @@ namespace gSpan
 	bool test_min_support_term(const DFSCode<Policy>& dfsc,
 				   Projected<Policy>* projected,
 				   const Projected<Policy>* prev,
-				   typename MapTraits<Policy>::Map_VL_EL_VL_P& xedges,
+				   typename MapTraits<Policy>::Map_VI_VI_VL_EL_VL_P& xedges,
 				   bool& brloop,
 				   int minsup,
 				   std::vector<bool>& early_termin,
@@ -1030,16 +1072,22 @@ namespace gSpan
 
 	    if (! is_min(dfsc, pl))
 	    {
-		Elabel_less<Policy> el_less(pl);
+		std::less<typename Policy::vertex_index_t> vi_less;
 		Vlabel_less<Policy> vl_less(pl);
+		Elabel_less<Policy> el_less(pl);
 		const EdgeCode<Policy>& ec = dfsc.back();
-		mapped_val(xedges, ec.vl_from, ec.el, ec.vl_to, el_less, vl_less).merge(*projected);
+		mapped_val(xedges, ec.vi_from, ec.vi_to, ec.vl_from, ec.el, ec.vl_to,
+			   vi_less, vl_less, el_less, vl_less).merge(*projected);
 		return false;
 	    }
 
 	    // early termination
 	    if (early_termin[dfsc.size() - 2])
 	    {
+#ifdef DEBUG_PRINT
+		std::cerr << "Early Termination for\n"
+			  << "P: " << projected << std::endl;
+#endif
 		brloop = true;
 		return false;
 	    }
@@ -1054,7 +1102,13 @@ namespace gSpan
 	    if (projected->size() == prev->size())
 	    {
 		if (!dfsc.back().is_forward() || !fail_early_termination(projected, pl))
+		{
+#ifdef DEBUG_PRINT
+		    std::cerr << "Detect Early Termination for\n"
+			      << "P: " << *prev << std::endl;
+#endif
 		    early_termin.at(dfsc.size()-2) = true;
+		}
 	    }
 	    return true;
 	}
@@ -1086,28 +1140,59 @@ namespace gSpan
 
 
 	template<class Policy>
-	class ProjectedInserter
+	typename Policy::vertex_index_t dfsc_vindex(typename Policy::vertex_index_t sbg_vi,
+						    const DFSCode<Policy>& dfsc,
+						    const SBG<Policy>& s,
+						    const Policy& pl)
 	{
-	    typedef typename MapTraits<Policy>::Map_VL_EL_VL_P XEdges;
+	    for (int i = 0; i < s.size(); ++i)
+	    {
+		if (sbg_vi == s[i].vi_from)
+		    return dfsc[i].vi_from;
+		if (sbg_vi == s[i].vi_to)
+		    return dfsc[i].vi_to;
+	    }
+	    return pl.void_vertex_index();
+	}
+
+	
+	template<class Policy>
+	class XEdgeInserter
+	{
+	    typedef typename MapTraits<Policy>::Map_VI_VI_VL_EL_VL_P XEdges;
 	    typedef typename Policy::edge_index_t EI;
+	    typedef typename Policy::vertex_index_t VI;
 	    XEdges& xedges_;
+	    const DFSCode<Policy>& dfsc_;
 	    const SBG<Policy>* parent_;
 	    const Policy& pl_;
 	    std::set<EI>& extension_;
 	public:
-	    ProjectedInserter(XEdges& xedges,  std::set<EI>& extension, const SBG<Policy>* parent, const Policy& pl)
-		:xedges_(xedges), parent_(parent), pl_(pl), extension_(extension) {}
+
+	    XEdgeInserter(XEdges& xedges,  std::set<EI>& extension,
+			  const DFSCode<Policy>& dfsc, const SBG<Policy>* parent, const Policy& pl)
+		:xedges_(xedges),
+		 dfsc_(dfsc),
+		 parent_(parent),
+		 pl_(pl),
+		 extension_(extension) {}
+
 	    void operator()	(const Edge<Policy>& e)
 		{
 		    if (extension_.count(e.ei) == 0)
 		    {
+
 			const typename Policy::graph_t& g = *parent_->get_graph();
-			Elabel_less<Policy> el_less(pl_);
+			std::less<VI> vi_less;
 			Vlabel_less<Policy> vl_less(pl_);
+			Elabel_less<Policy> el_less(pl_);
 			typename Policy::vertex_label_ref_t vl_from = pl_.vilabel(e.vi_from, g);
 			typename Policy::vertex_label_ref_t vl_to   = pl_.vilabel(e.vi_to, g);
 			typename Policy::edge_label_ref_t el        = pl_.eilabel(e.ei, g);
-			mapped_val(xedges_, vl_from, el, vl_to, el_less, vl_less).push(SBG<Policy>(parent_, e));
+			mapped_val(xedges_,
+				   dfsc_vindex(e.vi_from, dfsc_, *parent_, pl_), dfsc_vindex(e.vi_to, dfsc_, *parent_, pl_),
+				   vl_from, el, vl_to,
+				   vi_less, vl_less, el_less, vl_less).push(SBG<Policy>(parent_, e));
 			extension_.insert(e.ei);
 		    }
 		}
@@ -1127,8 +1212,8 @@ namespace gSpan
 #ifdef DEBUG_PRINT
 	    std::cerr << "=========== project() ===========\n"
 		      << "DFSC: " << dfsc << std::endl
-		      << "P: " << *projected
-		      << "P mgsbg_size = " << projected->mgsbg_size() << std::endl << std::endl;
+		      << "P supp=" << projected->mgsbg_size() << "\n"<< *projected
+		      << std::endl;
 #endif
 
 	    typedef typename Policy::vertex_index_t VI;
@@ -1143,7 +1228,7 @@ namespace gSpan
 	    // enumerate
 	    typedef typename MapTraits<Policy>::Map_VI_EL_P    BEdges;
 	    typedef typename MapTraits<Policy>::Map_VI_EL_VL_P FEdges;
-	    typedef typename MapTraits<Policy>::Map_VL_EL_VL_P XEdges;
+	    typedef typename MapTraits<Policy>::Map_VI_VI_VL_EL_VL_P XEdges;
 
 	    std::less<VI> vi_less;
 	    Elabel_less<Policy> el_less(pl);
@@ -1151,7 +1236,7 @@ namespace gSpan
 
 	    BEdges b_edges(vi_less);
 	    FEdges f_edges(vi_less);
-	    XEdges x_edges(vl_less);
+	    XEdges x_edges(vi_less);
 
 	    RMPath rmpath(dfsc);
 	    VI maxtoc   = dfsc[rmpath.rightmost()].vi_to;
@@ -1166,13 +1251,13 @@ namespace gSpan
 		    edge_status[rmpath[i]] = true;
 
 		std::set<EI> extension;
-
-		typedef ProjectedInserter<Policy> XchIns;
-		XchIns xch_ins(x_edges, extension, &sbg, pl);
 		const typename Policy::graph_t& g = *sbg.get_graph();
+
+		typedef XEdgeInserter<Policy> XchIns;
+		XchIns xch_ins(x_edges, extension, dfsc, &sbg, pl);
 		
 		// -----------------------------------
-		// descove RMPath extension edges
+		// discover RMPath extension edges
 		// -----------------------------------
 		for (int i = 0; i < NUM_EDGES; ++i)
 		{
@@ -1206,6 +1291,7 @@ namespace gSpan
 		    }
 		}
 		
+
 		// forward from right most
 		for (FwdPureEdgeIterator<Policy, XchIns> iter(sbg[rmpath.rightmost()], minlabel, sbg, pl, xch_ins);
 		     !iter.is_end(); iter.increment())
@@ -1218,7 +1304,7 @@ namespace gSpan
 		}
 
 		// -----------------------------------
-		// descove NOT RMPath extension edges
+		// discover NOT RMPath extension edges
 		// -----------------------------------
 		for (int i = 0; i < NUM_EDGES; ++i)
 		{
@@ -1284,35 +1370,48 @@ namespace gSpan
 			dfsc.pop_back();
 		    }
 
+	    
 	    // if current dfsc may be extented by x_edges to any supergraph with the same support,
 	    // then dfsc is not closed
 	    bool x_closed = true;
 #ifdef DEBUG_PRINT
 	    std::cerr << "Xedges: " << x_edges.size() << std::endl;
-	    std::cerr << "P: " << *projected << std::endl;
 #endif
 	    typedef typename XEdges::const_iterator XI1;
 	    typedef typename XEdges::mapped_type::const_iterator XI2;
 	    typedef typename XEdges::mapped_type::mapped_type::const_iterator XI3;
+	    typedef typename XEdges::mapped_type::mapped_type::mapped_type::const_iterator XI4;
+	    typedef typename XEdges::mapped_type::mapped_type::mapped_type::mapped_type::const_iterator XI5;
 	    for (XI1 i1 = x_edges.begin(); i1 != x_edges.end() && !brloop; ++i1)
 		for (XI2 i2 = i1->second.begin(); i2 != i1->second.end() && !brloop; ++i2)
 		    for (XI3 i3 = i2->second.begin(); i3 != i2->second.end() && !brloop; ++i3)
-		    {
+			for (XI4 i4 = i3->second.begin(); i4 != i3->second.end() && !brloop; ++i4)
+			    for (XI5 i5 = i4->second.begin(); i5 != i4->second.end() && !brloop; ++i5)
+			    {
 #ifdef DEBUG_PRINT
-			std::cerr << i3->second << " mgsbg_size=" << i3->second.mgsbg_size() << std::endl;
+				std::cerr << i1->first<<","<<i2->first<<","<<i3->first<<","
+					  << i4->first<<","<<i5->first<<std::endl;
+				std::cerr << "X: " << i5->second << std::endl;
 #endif
-			if (i3->second.mgsbg_size() == projected->mgsbg_size())
-			{
-			    x_closed = false;
-			    brloop = true;
-			    break;
-			}
-		    }
-
+				if (i5->second.mgsbg_size() == projected->mgsbg_size())
+				{
+#ifdef DEBUG_PRINT
+				    std::cerr << "x_closed = false\n";
+				    std::cerr << "P: " << *projected << std::endl;
+#endif
+				    x_closed = false;
+				    brloop = true;
+				    break;
+				}
+			    }
 	    
 	    // bottom is reached
 	    if (closed.back() && x_closed)
 		result(dfsc, *projected);
+
+#ifdef DEBUG_PRINT
+	    std::cerr << "RET\n";
+#endif
 	}
 	
     } // end: namespace closegraph_detail
@@ -1428,5 +1527,9 @@ namespace gSpan
     }
 
 } // end: namespace gSpan
+
+//#ifdef BR
+//#undef BR
+//#endif
 
 #endif
