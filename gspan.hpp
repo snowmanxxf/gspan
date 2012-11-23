@@ -1145,7 +1145,7 @@ namespace gSpan
 						    const SBG<Policy>& s,
 						    const Policy& pl)
 	{
-	    for (int i = 0; i < s.size(); ++i)
+	    for (int i = s.size()-1; i >= 0; --i)
 	    {
 		if (sbg_vi == s[i].vi_from)
 		    return dfsc[i].vi_from;
@@ -1177,26 +1177,29 @@ namespace gSpan
 		 pl_(pl),
 		 extension_(extension) {}
 
-	    void operator()	(const Edge<Policy>& e)
-		{
-		    if (extension_.count(e.ei) == 0)
-		    {
-
-			const typename Policy::graph_t& g = *parent_->get_graph();
-			std::less<VI> vi_less;
-			Vlabel_less<Policy> vl_less(pl_);
-			Elabel_less<Policy> el_less(pl_);
-			typename Policy::vertex_label_ref_t vl_from = pl_.vilabel(e.vi_from, g);
-			typename Policy::vertex_label_ref_t vl_to   = pl_.vilabel(e.vi_to, g);
-			typename Policy::edge_label_ref_t el        = pl_.eilabel(e.ei, g);
-			mapped_val(xedges_,
-				   dfsc_vindex(e.vi_from, dfsc_, *parent_, pl_), dfsc_vindex(e.vi_to, dfsc_, *parent_, pl_),
-				   vl_from, el, vl_to,
-				   vi_less, vl_less, el_less, vl_less).push(SBG<Policy>(parent_, e));
-			extension_.insert(e.ei);
-		    }
-		}
+	    void operator() (const Edge<Policy>& e);
 	};
+
+	template<class Policy>
+	void XEdgeInserter<Policy>::operator() (const Edge<Policy>& e)
+	{
+	    if (extension_.count(e.ei) == 0)
+	    {
+
+		const typename Policy::graph_t& g = *parent_->get_graph();
+		std::less<VI> vi_less;
+		Vlabel_less<Policy> vl_less(pl_);
+		Elabel_less<Policy> el_less(pl_);
+		typename Policy::vertex_label_ref_t vl_from = pl_.vilabel(e.vi_from, g);
+		typename Policy::vertex_label_ref_t vl_to   = pl_.vilabel(e.vi_to, g);
+		typename Policy::edge_label_ref_t el        = pl_.eilabel(e.ei, g);
+		mapped_val(xedges_,
+			   dfsc_vindex(e.vi_from, dfsc_, *parent_, pl_), dfsc_vindex(e.vi_to, dfsc_, *parent_, pl_),
+			   vl_from, el, vl_to,
+			   vi_less, vl_less, el_less, vl_less).push(SBG<Policy>(parent_, e));
+		extension_.insert(e.ei);
+	    }
+	}
 
  
 	template<class Policy, class Output>
@@ -1404,8 +1407,7 @@ namespace gSpan
 				    break;
 				}
 			    }
-	    
-	    // bottom is reached
+
 	    if (closed.back() && x_closed)
 		result(dfsc, *projected);
 
