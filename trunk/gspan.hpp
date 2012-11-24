@@ -1,3 +1,4 @@
+
 #ifndef CLOSEGRAPH_H_
 #define CLOSEGRAPH_H_
 
@@ -923,15 +924,6 @@ namespace gSpan
 			VI vi  = dfsc[rmpath[i]].vi_from;
 			ELR el = pl.eilabel(e.ei,g);
 			mapped_val(b_edges, vi, el, el_less).push(SBG(&sbg, e));
-/*
-			// virtual forward pure
-			VLR vl_to = pl.vilabel(e.vi_to,g);
-			mapped_val(f_edges, maxtoc, el, vl_to, el_less, vl_less).push(SBG(&sbg, e));
-
-			// virtual forward rmpath
-			VLR vl_from = pl.vilabel(e.vi_from,g);
-			mapped_val(f_edges, vi, el, vl_from, el_less, vl_less).push(SBG(&sbg, e));
-*/
 		    }
 		}
 
@@ -1155,52 +1147,6 @@ namespace gSpan
 	    return pl.void_vertex_index();
 	}
 
-	
-	template<class Policy>
-	class XEdgeInserter
-	{
-	    typedef typename MapTraits<Policy>::Map_VI_VI_VL_EL_VL_P XEdges;
-	    typedef typename Policy::edge_index_t EI;
-	    typedef typename Policy::vertex_index_t VI;
-	    XEdges& xedges_;
-	    const DFSCode<Policy>& dfsc_;
-	    const SBG<Policy>* parent_;
-	    const Policy& pl_;
-	    std::set<EI>& extension_;
-	public:
-
-	    XEdgeInserter(XEdges& xedges,  std::set<EI>& extension,
-			  const DFSCode<Policy>& dfsc, const SBG<Policy>* parent, const Policy& pl)
-		:xedges_(xedges),
-		 dfsc_(dfsc),
-		 parent_(parent),
-		 pl_(pl),
-		 extension_(extension) {}
-
-	    void operator() (const Edge<Policy>& e);
-	};
-
-	template<class Policy>
-	void XEdgeInserter<Policy>::operator() (const Edge<Policy>& e)
-	{
-	    if (extension_.count(e.ei) == 0)
-	    {
-
-		const typename Policy::graph_t& g = *parent_->get_graph();
-		std::less<VI> vi_less;
-		Vlabel_less<Policy> vl_less(pl_);
-		Elabel_less<Policy> el_less(pl_);
-		typename Policy::vertex_label_ref_t vl_from = pl_.vilabel(e.vi_from, g);
-		typename Policy::vertex_label_ref_t vl_to   = pl_.vilabel(e.vi_to, g);
-		typename Policy::edge_label_ref_t el        = pl_.eilabel(e.ei, g);
-		mapped_val(xedges_,
-			   dfsc_vindex(e.vi_from, dfsc_, *parent_, pl_), dfsc_vindex(e.vi_to, dfsc_, *parent_, pl_),
-			   vl_from, el, vl_to,
-			   vi_less, vl_less, el_less, vl_less).push(SBG<Policy>(parent_, e));
-		extension_.insert(e.ei);
-	    }
-	}
-
  
 	template<class Policy, class Output>
 	void project(const Projected<Policy>* projected,
@@ -1249,74 +1195,88 @@ namespace gSpan
 	    BOOST_FOREACH(const SBG& sbg, *projected)
 	    {
 		assert(NUM_EDGES == sbg.size());
-		std::vector<bool> edge_status(NUM_EDGES, false); // true means rmpath edge
-		for (int i = 0; i < rmpath.size(); ++i)
-		    edge_status[rmpath[i]] = true;
-
-		std::set<EI> extension;
 		const typename Policy::graph_t& g = *sbg.get_graph();
-
-		typedef XEdgeInserter<Policy> XchIns;
-		XchIns xch_ins(x_edges, extension, dfsc, &sbg, pl);
 		
 		// -----------------------------------
 		// discover RMPath extension edges
 		// -----------------------------------
-		for (int i = 0; i < NUM_EDGES; ++i)
+		std::set<EI> r_extension;
+
+		// backward
+		for (int i = 0; i < rmpath.size() - 1; ++i)
 		{
-		    if (! edge_status[i])
-			continue;
-
-		    // backward
-		    if (rmpath.rightmost() != i)
-		    {
-			BckEdgeIterator<Policy, XchIns> iter(sbg[i], sbg[rmpath.rightmost()], sbg, pl, xch_ins);
-			if (! iter.is_end())
-			{
-			    const Edge& e = iter.edge();
-			    VI vi  = dfsc[i].vi_from;
-			    ELR el = pl.eilabel(e.ei,g);
-			    mapped_val(b_edges, vi, el, el_less).push(SBG(&sbg, e));
-			    extension.insert(e.ei);
-			}
-		    }
-
-		    // forward from rmpath
-		    for (FwdRmpathEdgeIterator<Policy, XchIns> iter(sbg[i], minlabel, sbg, pl, xch_ins);
-			 !iter.is_end(); iter.increment())
+		    BckEdgeIterator<Policy> iter(sbg[rmpath[i]], sbg[rmpath.rightmost()], sbg, pl);
+		    if (!iter.is_end())
 		    {
 			const Edge& e = iter.edge();
-			VI vi  = dfsc[i].vi_from;
+			VI vi  = dfsc[rmpath[i]].vi_from;
 			ELR el = pl.eilabel(e.ei,g);
-			VLR vl = pl.vilabel(e.vi_to,g);
-			mapped_val(f_edges, vi, el, vl, el_less, vl_less).push(SBG(&sbg, e));
-			extension.insert(e.ei);
+			mapped_val(b_edges, vi, el, el_less).push(SBG(&sbg, e));
+			r_extension.insert(e.ei);
 		    }
 		}
-		
 
-		// forward from right most
-		for (FwdPureEdgeIterator<Policy, XchIns> iter(sbg[rmpath.rightmost()], minlabel, sbg, pl, xch_ins);
+		// forward
+		for (FwdPureEdgeIterator<Policy> iter(sbg[rmpath.rightmost()], minlabel, sbg, pl);
 		     !iter.is_end(); iter.increment())
 		{
 		    const Edge& e = iter.edge();
 		    ELR el = pl.eilabel(e.ei,g);
 		    VLR vl = pl.vilabel(e.vi_to,g);
 		    mapped_val(f_edges, maxtoc, el, vl, el_less, vl_less).push(SBG(&sbg, e));
-		    extension.insert(e.ei);
+		    r_extension.insert(e.ei);
 		}
+
+		for (int i = rmpath.size()-1; i >= 0; --i)
+		    for (FwdRmpathEdgeIterator<Policy> iter(sbg[rmpath[i]], minlabel, sbg, pl);
+			 !iter.is_end(); iter.increment())
+		    {
+			const Edge& e = iter.edge();
+			VI vi  = dfsc[rmpath[i]].vi_from;
+			ELR el = pl.eilabel(e.ei,g);
+			VLR vl = pl.vilabel(e.vi_to,g);
+			mapped_val(f_edges, vi, el, vl, el_less, vl_less).push(SBG(&sbg, e));
+			r_extension.insert(e.ei);
+		    }
 
 		// -----------------------------------
 		// discover NOT RMPath extension edges
 		// -----------------------------------
+		std::set<EI> x_extension;
 		for (int i = 0; i < NUM_EDGES; ++i)
 		{
-		    if (edge_status[i])
-			continue;
-		    for (EdgeExtensionIterator<Policy> iter(sbg[i].vi_from, sbg, pl); !iter.is_end(); iter.increment())
-			xch_ins(iter.edge());
+		    for (EdgeExtensionIterator<Policy> iter(sbg[i].vi_from, sbg, pl);
+			 !iter.is_end(); iter.increment())
+		    {
+			const Edge& e = iter.edge();
+			if (r_extension.count(e.ei) == 0 && x_extension.count(e.ei) == 0)
+			{
+			    typename Policy::vertex_label_ref_t vl_from = pl.vilabel(e.vi_from, g);
+			    typename Policy::vertex_label_ref_t vl_to   = pl.vilabel(e.vi_to, g);
+			    typename Policy::edge_label_ref_t el        = pl.eilabel(e.ei, g);
+			    mapped_val(x_edges,
+				       dfsc_vindex(e.vi_from, dfsc, sbg, pl), dfsc_vindex(e.vi_to, dfsc, sbg, pl),
+				       vl_from, el, vl_to,
+				       vi_less, vl_less, el_less, vl_less).push(SBG(&sbg, e));
+			    x_extension.insert(e.ei);
+			}
+		    }
+		    
 		    for (EdgeExtensionIterator<Policy> iter(sbg[i].vi_to, sbg, pl); !iter.is_end(); iter.increment())
-			xch_ins(iter.edge());
+		    {
+			const Edge& e = iter.edge();
+			if (r_extension.count(e.ei) == 0 && x_extension.count(e.ei) == 0)
+			{
+			    typename Policy::vertex_label_ref_t vl_from = pl.vilabel(e.vi_from, g);
+			    typename Policy::vertex_label_ref_t vl_to   = pl.vilabel(e.vi_to, g);
+			    typename Policy::edge_label_ref_t el        = pl.eilabel(e.ei, g);
+			    mapped_val(x_edges,
+				       dfsc_vindex(e.vi_from, dfsc, sbg, pl), dfsc_vindex(e.vi_to, dfsc, sbg, pl),
+				       vl_from, el, vl_to,
+				       vi_less, vl_less, el_less, vl_less).push(SBG(&sbg, e));
+			    x_extension.insert(e.ei);
+			}
+		    }
 		}
 	    }
 	    
@@ -1330,8 +1290,7 @@ namespace gSpan
 		for (typename BEdges::mapped_type::iterator i2 = i1->second.begin();
 		     i2 != i1->second.end() && !brloop; ++i2)
 		{
-		    VI bck_to = i1->first;
-		    EdgeCode ec(maxtoc, bck_to, pl.void_vlabel(), i2->first, pl.void_vlabel());
+		    EdgeCode ec(maxtoc, i1->first, pl.void_vlabel(), i2->first, pl.void_vlabel());
 		    dfsc.push_back(ec);
 		    early_termin.push_back(false);
 		    closed.push_back(true);
@@ -1372,14 +1331,14 @@ namespace gSpan
 			early_termin.pop_back();
 			dfsc.pop_back();
 		    }
-
 	    
 	    // if current dfsc may be extented by x_edges to any supergraph with the same support,
 	    // then dfsc is not closed
-	    bool x_closed = true;
 #ifdef DEBUG_PRINT
 	    std::cerr << "Xedges: " << x_edges.size() << std::endl;
 #endif
+	    bool x_closed = true;
+	    brloop = false;
 	    typedef typename XEdges::const_iterator XI1;
 	    typedef typename XEdges::mapped_type::const_iterator XI2;
 	    typedef typename XEdges::mapped_type::mapped_type::const_iterator XI3;
@@ -1392,8 +1351,8 @@ namespace gSpan
 			    for (XI5 i5 = i4->second.begin(); i5 != i4->second.end() && !brloop; ++i5)
 			    {
 #ifdef DEBUG_PRINT
-				std::cerr << i1->first<<","<<i2->first<<","<<i3->first<<","
-					  << i4->first<<","<<i5->first<<std::endl;
+				std::cerr << i1->first<<", "<<i2->first<<", "<<i3->first<<", "
+					  << i4->first<<", "<<i5->first<<std::endl;
 				std::cerr << "X: " << i5->second << std::endl;
 #endif
 				if (i5->second.mgsbg_size() == projected->mgsbg_size())
