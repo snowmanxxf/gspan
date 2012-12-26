@@ -42,7 +42,14 @@ while (defined($line = <STDIN>))
 	}
 	elsif ($values[0] =~ "^e.*")
 	{
-	    print "\t" . $values[1] . $edgeop . $values[2] . " [label=\"" . $values[3] . "\"]\n";;
+	    if ($values[3])
+	    {
+		print "\t" . $values[1] . $edgeop . $values[2] . " [label=\"" . $values[3] . "\"]\n";
+	    }
+	    else
+	    {
+		print "\t" . $values[1] . $edgeop . $values[2] . "\n";
+	    }
 	}
 	elsif ($values[0] =~ "#undirected")
 	{

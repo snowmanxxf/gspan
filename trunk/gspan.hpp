@@ -1,4 +1,3 @@
-
 #ifndef CLOSEGRAPH_H_
 #define CLOSEGRAPH_H_
 
@@ -162,25 +161,27 @@ namespace gSpan
 	    { delete rec_; }
 
 	int size() const { return depth_; }
-	const Edge<Policy>& operator[] (int i) const	{ if (!rec_) init_rec_(); return *rec_->e_[i]; }
-	bool has_vertex(VI vi) const		        { if (!rec_) init_rec_(); return rec_->vv_[vi]; }
-	bool has_edge(EI ei) const       	        { if (!rec_) init_rec_(); return rec_->ee_[ei]; }
-	bool has_edge(const Edge<Policy>& e) const	{ if (!rec_) init_rec_(); return rec_->ee_[e.ei]; }
+	const Edge<Policy>& operator[] (int i) const	{ if (!rec_) init_rec_(); return *rec_->get_edge(i); }
+	bool has_vertex(VI vi) const		        { if (!rec_) init_rec_(); return rec_->has_vertex(vi); }
+	bool has_edge(EI ei) const       	        { if (!rec_) init_rec_(); return rec_->has_edge(ei); }
 	const G* get_graph() const { return graph_; }
-	const SBG* parent() const { return prev_; }
 	const Edge<Policy>& last_edge() const { return edge_; }
 	SBG* automorph_list;
     private:
 	const SBG* prev_;
 	Edge<Policy> edge_;
 
-	struct R
+	class R
 	{
 	    std::vector<const Edge<Policy>*> e_;
 	    std::vector<short> vv_;
 	    std::vector<bool> ee_;
+	public:
 	    R(const Edge<Policy>& e, const G& g);
 	    R(const Edge<Policy>& e, const R* prev);
+	    const Edge<Policy>* get_edge(int i) const { return e_[i]; }
+	    bool has_vertex(VI vi) const { return vv_[vi]; }
+	    bool has_edge(EI ei) const { return ee_[ei]; }
 	};
 	mutable R* rec_;
 	void init_rec_() const;
@@ -225,12 +226,12 @@ namespace gSpan
 	out << "sbg:";
 	for (int i = 0; i < sbg.size(); ++i)
 	    out << " " << sbg[i];
-	out << " at address: " << &sbg << " of the graph: " << sbg.get_graph() << " parent=" << sbg.parent();
+	out << " at address: " << &sbg << " of the graph: " << sbg.get_graph();
 	return out;
     }
 
     template<class Policy>
-    bool is_automorph(const SBG<Policy>& sbg1, const SBG<Policy>& sbg2)
+    int num_common_edges(const SBG<Policy>& sbg1, const SBG<Policy>& sbg2)
     {
 	assert(sbg1.get_graph() == sbg2.get_graph());
 	assert(sbg1.size() == sbg2.size());
@@ -242,56 +243,296 @@ namespace gSpan
 	    ei1.insert(sbg1[i].ei);
 	    ei2.insert(sbg2[i].ei);
 	}
-	return std::equal(ei1.begin(), ei1.end(), ei2.begin());
+	
+	std::vector<typename Policy::edge_index_t> common;
+	std::set_intersection(ei1.begin(), ei1.end(), ei2.begin(), ei2.end(), std::back_inserter(common));
+	return common.size();
     }
 
+    
+
     // *****************************************************************************
-    //                          Projected
+    //                          ProjectedOneGraph
     // *****************************************************************************
+    template<class T> class list_ : public std::list<T>
+    {
+	typedef std::list<T> Base;
+	int size_;
+    public:
+	list_() :size_(0) {}
+
+	int size() const { return size_; }
+
+	void splice(list_& l)
+	    {
+		size_ += l.size_;
+		(static_cast<Base*>(this))->splice(this->begin(), l);
+		l.size_ = 0;
+	    }
+	
+	void push_back(const T& v)
+	    {
+		++size_;
+		(static_cast<Base*>(this))->push_back(v);
+	    }
+    };
+
+    
+    //
+    // Projected part visible for user
+    //
+/*
     template<class Policy>
-    class Projected
+    class SubgraphsOfOneGraph
+	: public std::pair<const typename Policy::graph_t*, std::list<SBG<Policy>* > >
+    {
+	typedef std::pair<const typename Policy::graph_t*, std::list<SBG<Policy>* > > Base;
+	int count_non_overlapped_;
+    public:
+	explicit SubgraphsOfOneGraph(const typename Policy::graph_t* g)
+	    :Base(g, std::list<SBG<Policy>* >()),
+	     count_non_overlapped_(0) {}
+
+	SubgraphsOfOneGraph(const typename Policy::graph_t* g, SBG<Policy>* s)
+	    :Base(g, std::list<SBG<Policy>* >(1, s)),
+	     count_non_overlapped_(1) {}
+
+	int support() const { return count_non_overlapped_; }
+	void push(SBG<Policy>* s);
+	void merge(SubgraphsOfOneGraph& sog)
+	    {
+		assert(this->first == sog.first);
+		this->second.splice(this->second.begin(), sog.second);
+	    }
+    };
+
+
+    template<class Policy>
+    void SubgraphsOfOneGraph<Policy>::push(SBG<Policy>* s)
+    {
+	assert(this->first == s->get_graph());
+	const int ne = s->size();
+	bool has_common_edge = false;
+	BOOST_FOREACH(SBG<Policy>* sbg, this->second)
+	{
+	    int nce = num_common_edges(*s, *sbg);
+	    if (nce == ne)
+	    {
+		assert(s->automorph_list == 0);
+		s->automorph_list = sbg->automorph_list;
+		sbg->automorph_list = s;
+		return;
+	    }
+
+	    if (nce > 0)
+		has_common_edge = true;
+	}
+	
+	this->second.push_back(s);
+
+	if (! has_common_edge)
+	    ++count_non_overlapped_;
+    }
+
+
+    template<class P>
+    struct FirstCompare { bool operator() (const P& p1, const P& p2) const { return p1.first < p2.first; } };
+
+    template<class Policy>
+    class SubgraphsOfManyGraph
+	: public std::set<SubgraphsOfOneGraph<Policy>, FirstCompare<SubgraphsOfOneGraph<Policy> > >
     {
     public:
-	typedef std::list<SBG<Policy>*> Sbgs;
-	typedef std::map<const typename Policy::graph_t*, Sbgs> M_G_SBG;
+	explicit SubgraphsOfManyGraph(const typename Policy::graph_t* g)
+	    {		
+	    }
 
+	typedef std::set<SubgraphsOfOneGraph<Policy>, FirstCompare<SubgraphsOfOneGraph<Policy> > > Base;
+	typedef typename Base::iterator iterator;
+	typedef typename Base::const_iterator const_iterator;
+
+	int support() const { return this->size(); }
+	void push(SBG<Policy>* s);
+	void merge(SubgraphsOfManyGraph& sg);
+    };
+
+    template<class Policy>
+    void SubgraphsOfManyGraph<Policy>::push(SBG<Policy>* s)
+    {
+	SubgraphsOfOneGraph<Policy> sg(s->get_graph(), s);
+	std::pair<iterator,bool> p = this->insert(sg);
+	if (! p.second)
+	    (const_cast<SubgraphsOfOneGraph<Policy>*>(&*p.first))->push(s);
+    }
+
+    template<class Policy>
+    void SubgraphsOfManyGraph<Policy>::merge(SubgraphsOfManyGraph& smg)
+    {
+	BOOST_FOREACH(const SubgraphsOfOneGraph<Policy>& sog_, smg)
+	{
+	    SubgraphsOfOneGraph<Policy>& sog = const_cast<SubgraphsOfOneGraph<Policy>&>(sog_);
+
+	    iterator i = this->find(sog);
+	    if (i != this->end())
+	    {
+		SubgraphsOfOneGraph<Policy>& sog_this = const_cast<SubgraphsOfOneGraph<Policy>&>(*i);
+		sog_this.merge(sog);
+	    }
+	    else
+	    {
+		std::pair<iterator,bool> p = this->insert(SubgraphsOfOneGraph<Policy>(sog.first));
+		SubgraphsOfOneGraph<Policy>& sog_this = const_cast<SubgraphsOfOneGraph<Policy>&>(*p.first);
+		sog_this.merge(sog);
+	    }
+	}
+	smg.clear();
+    }
+
+    //
+    // Projected implementation part
+    //
+
+    template<class Policy>
+    class ProjectedSimple
+    {
+	typedef list_<SBG<Policy> > SBGS;
+	SBGS sbgs_;
+    public:
+	typedef typename SBGS::const_iterator const_iterator;
+	const_iterator begin() const	{ return sbgs_.begin(); }
+	const_iterator end()   const	{ return sbgs_.end(); }
+	void push(const SBG<Policy>& s) { sbgs_.push_back(s); }
+    protected:
+	void splice(ProjectedSimple& prj) { sbgs_.splice(prj.sbgs_); }
+	int size() const { return sbgs_.size(); }
+	SBG<Policy>& back() { return sbgs_.back(); }
+    };
+
+
+    template<class Policy, class S>
+    class Projected : public ProjectedSimple<Policy>
+    {
+	S* sg_;
+    public:
+	Projected() :sg_(0) {}
+	~Projected() { delete sg_; }
+
+	int support() const { return sg_->support(); }
+	int size() const { return this->size(); }
+	void push(const SBG<Policy>& s)
+	    {
+		if (!sg_)
+		    sg_ = new S(s.get_graph());
+		BR;
+		this->push(s);
+		sg_->push(&this->back());
+	    }
+
+	void merge(Projected& prj)
+	    {
+		this->splice(prj);
+		sg_->merge(*prj.sg_);
+	    }
+
+	const S& get_S() const { return *sg_; }
+    };
+    
+*/
+
+    //--------------------------------------------
+
+    template<class Policy>
+    class ProjectedOneGraph_ : public list_<SBG<Policy> >
+    {
+    public:
+	ProjectedOneGraph_() :support_(0) {}
 	void push(const SBG<Policy>& s);
 
-	// all sbg iterator
-	typedef typename std::list<SBG<Policy> >::iterator iterator;
-	typedef typename std::list<SBG<Policy> >::const_iterator const_iterator;
-	iterator begin() { return s_.begin(); }
-	iterator end() { return s_.end(); }
-	const_iterator begin() const { return s_.begin(); }
-	const_iterator end() const { return s_.end(); }
-	int size() const { return s_.size(); }
+	typedef list_<SBG<Policy>*> SBGS;
+	typedef typename SBGS::const_iterator SBGSconst_iterator;
+	SBGSconst_iterator sbgs_begin() const	{ return sbgs_.begin(); }
+	SBGSconst_iterator sbgs_end() const	{ return sbgs_.end(); }
+	void merge(ProjectedOneGraph_& p);
+	int support() const			{ return support_; }
+    private:
+	SBGS sbgs_;
+	int support_;
+    };
 
-	//
+    template<class Policy>
+    void ProjectedOneGraph_<Policy>::push(const SBG<Policy>& s)
+    {
+	push_back(s);
+	bool has_common_edge = false;
+	SBG<Policy>* ps = &this->back();
+	BOOST_FOREACH(SBG<Policy>* sbg, sbgs_)
+	{
+	    int nce = num_common_edges(*ps, *sbg);
+	    if (nce == s.size())
+	    {
+		assert(ps->automorph_list == 0);
+		ps->automorph_list = sbg->automorph_list;
+		sbg->automorph_list = ps;
+		return;
+	    }
+
+	    if (nce > 0)
+		has_common_edge = true;
+	}
+
+	sbgs_.push_back(ps);
+
+	if (! has_common_edge)
+	    ++support_;
+    }
+
+
+    template<class Policy>
+    void ProjectedOneGraph_<Policy>::merge(ProjectedOneGraph_& p)
+    {
+	this->splice(p);
+	sbgs_.splice(p.sbgs_);
+    }
+
+    template<class Policy>
+    std::ostream& operator<<(std::ostream& out, const ProjectedOneGraph_<Policy>& p)
+    {
+	for (typename ProjectedOneGraph_<Policy>::const_iterator i = p.begin(); i != p.end(); ++i)
+	    out << '\t' << *i << std::endl;
+	return out;
+    }
+
+
+    // *****************************************************************************
+    //                          ProjectedManyGraph_
+    // *****************************************************************************
+    template<class Policy>
+    class ProjectedManyGraph_ : public list_<SBG<Policy> >
+    {
+    public:
+	void push(const SBG<Policy>& s);
+
+	typedef list_<SBG<Policy>*> SBGS;
+	typedef std::map<const typename Policy::graph_t*, SBGS> M_G_SBG;
 	typedef typename M_G_SBG::const_iterator MGSBGconst_iterator;
 	MGSBGconst_iterator mgsbg_begin() const { return m_g_sbg_.begin(); }
 	MGSBGconst_iterator mgsbg_end() const   { return m_g_sbg_.end(); }
-	int mgsbg_size() const { return m_g_sbg_.size(); }
-
-	void merge(Projected& p)
-	    {
-		s_.splice(s_.begin(), p.s_);
-		m_g_sbg_.insert(p.m_g_sbg_.begin(), p.m_g_sbg_.end());
-		p.m_g_sbg_.clear();
-	    }
+	void merge(ProjectedManyGraph_& p);
+	int support() const			{ return m_g_sbg_.size(); }
     private:
-	std::list<SBG<Policy> > s_;
 	M_G_SBG m_g_sbg_;
     };
 
     template<class Policy>
-    void Projected<Policy>::push(const SBG<Policy>& s)
+    void ProjectedManyGraph_<Policy>::push(const SBG<Policy>& s)
     {
-	s_.push_back(s);
-	SBG<Policy>* ps = &s_.back();
-	Sbgs& sbgs = m_g_sbg_[s.get_graph()];
+	push_back(s);
+
+	SBG<Policy>* ps = &this->back();
+	SBGS& sbgs = m_g_sbg_[s.get_graph()];
 	BOOST_FOREACH(SBG<Policy>* sbg, sbgs)
 	{
-	    if (is_automorph(*ps, *sbg))
+	    if (num_common_edges(*ps, *sbg) == s.size())
 	    {
 		assert(ps->automorph_list == 0);
 		ps->automorph_list = sbg->automorph_list;
@@ -301,12 +542,36 @@ namespace gSpan
 	}
 	sbgs.push_back(ps);
     }
-    
 
     template<class Policy>
-    std::ostream& operator<<(std::ostream& out, const Projected<Policy>& p)
+    void ProjectedManyGraph_<Policy>::merge(ProjectedManyGraph_& p)
     {
-	for (typename Projected<Policy>::const_iterator i = p.begin(); i != p.end(); ++i)
+	this->splice(p);
+	//m_g_sbg_.insert(p.m_g_sbg_.begin(), p.m_g_sbg_.end());
+	BOOST_FOREACH(typename M_G_SBG::value_type& r, p.m_g_sbg_)
+	{
+	    const typename Policy::graph_t* p_graph = r.first;
+	    SBGS& sbgs = r.second;
+	    
+	    typename M_G_SBG::iterator it = m_g_sbg_.find(p_graph);
+	    if (it != m_g_sbg_.end())
+	    {
+		it->second.splice(sbgs);
+	    }
+	    else
+	    {
+		m_g_sbg_[p_graph].splice(sbgs);
+	    }
+	}
+
+	p.m_g_sbg_.clear();
+    }
+
+
+    template<class Policy>
+    std::ostream& operator<<(std::ostream& out, const ProjectedManyGraph_<Policy>& p)
+    {
+	for (typename ProjectedManyGraph_<Policy>::const_iterator i = p.begin(); i != p.end(); ++i)
 	    out << '\t' << *i << std::endl;
 	return out;
     }
@@ -368,6 +633,7 @@ namespace gSpan
 	EdgeInSbgPred(const Policy& pl, const SBG<Policy>& sbg) :pl_(pl), sbg_(sbg) {}
 	bool operator() (const Edge<Policy>& e) const { return ! sbg_.has_edge(e.ei); }
     };
+
 
     template<class Policy>
     class BackwardEdgePred
@@ -632,7 +898,6 @@ namespace gSpan
 			  k2, k3, k4, k5, c3, c4, c5);
     }
 
-
     template<class Policy>
     class Vlabel_less
     {
@@ -655,7 +920,7 @@ namespace gSpan
 	    { return pl_.elabel_less(el1, el2); }
     };
 
-    template<class Policy>
+    template<class Policy, class P>
     class MapTraits
     {
 	// std::map wrapper without default constructor
@@ -664,7 +929,6 @@ namespace gSpan
 	typedef typename Policy::vertex_index_t VI;
 	typedef typename Policy::vertex_label_t VL;
 	typedef typename Policy::edge_label_t EL;
-	typedef Projected<Policy> P;
     public:
 	typedef map_<EL, Elabel_less<Policy>, P>		Map_EL_P;
 	typedef map_<VL, Vlabel_less<Policy>, P>		Map_VL_P;
@@ -676,6 +940,8 @@ namespace gSpan
 	typedef map_<VI, std::less<VI>,       Map_VL_EL_VL_P>		Map_VI_VL_EL_VL_P;
 	typedef map_<VI, std::less<VI>,       Map_VI_VL_EL_VL_P>	Map_VI_VI_VL_EL_VL_P;
     };
+
+
 
     // *****************************************************************************
     //                         functions
@@ -697,8 +963,8 @@ namespace gSpan
     };
     
 
-    template<class Policy, class VlMapCount>
-    void enum_one_edges(typename MapTraits<Policy>::Map_VL_EL_VL_P& m,
+    template<class Policy, class Map_VL_EL_VL_P, class VlMapCount>
+    void enum_one_edges(Map_VL_EL_VL_P& m,
 			const typename Policy::graph_t& g,
 			const Policy& pl,
 			VlMapCount& vlab_count)
@@ -731,8 +997,8 @@ namespace gSpan
     }
 
 
-    template<class Policy>
-    bool project_is_min(const Projected<Policy>& projected,
+    template<class Policy, class P>
+    bool project_is_min(const P& projected,
 			DFSCode<Policy>& dfsc_min,
 			const DFSCode<Policy>& dfsc_tested,
 			const Policy& pl)
@@ -749,8 +1015,8 @@ namespace gSpan
 
 	// --------------------------------------------------------------
 	// enumerate
-	typedef typename MapTraits<Policy>::Map_EL_P    BEdges;
-	typedef typename MapTraits<Policy>::Map_EL_VL_P FEdges;
+	typedef typename MapTraits<Policy, P>::Map_EL_P    BEdges;
+	typedef typename MapTraits<Policy, P>::Map_EL_VL_P FEdges;
 
 	RMPath rmpath(dfsc_min);
 	VI maxtoc = dfsc_min[rmpath.rightmost()].vi_to;
@@ -848,7 +1114,7 @@ namespace gSpan
     template<class Policy>
     bool is_min(const DFSCode<Policy>& dfsc_tested, const Policy& pl)
     {
-	typedef typename MapTraits<Policy>::Map_VL_EL_VL_P M3;
+	typedef typename MapTraits<Policy, ProjectedOneGraph_<Policy> >::Map_VL_EL_VL_P M3;
 	Vlabel_less<Policy> vl_less(pl);
 	std::auto_ptr<typename Policy::graph_t> graph(pl.create_graph(dfsc_tested));
 
@@ -870,8 +1136,8 @@ namespace gSpan
     // ================================================================
     namespace gspan_detail
     {
-	template<class Policy, class Output>
-	void project(const Projected<Policy>& projected,
+	template<class Policy, class P, class Output>
+	void project(const P& projected,
 		     DFSCode<Policy>& dfsc,
 		     int minsup,
 		     const Policy& pl,
@@ -884,7 +1150,7 @@ namespace gSpan
 	    typedef Edge<Policy> Edge;
 	    typedef EdgeCode<Policy> EdgeCode;
 
-	    int sup = projected.mgsbg_size();
+	    int sup = projected.support();
 	    if (sup < minsup)
 		return;
 
@@ -895,8 +1161,8 @@ namespace gSpan
 
 	    // --------------------------------------------------------------
 	    // enumerate
-	    typedef typename MapTraits<Policy>::Map_VI_EL_P    BEdges;
-	    typedef typename MapTraits<Policy>::Map_VI_EL_VL_P FEdges;
+	    typedef typename MapTraits<Policy, P>::Map_VI_EL_P    BEdges;
+	    typedef typename MapTraits<Policy, P>::Map_VI_EL_VL_P FEdges;
 
 	    std::less<VI> vi_less;
 	    Elabel_less<Policy> el_less(pl);
@@ -1000,7 +1266,7 @@ namespace gSpan
 	    for (EdgeIter<Policy> iter(vi_to, g, pl); !iter.is_end(); iter.increment())
 	    {
 		const Edge<Policy>& e = iter.edge();
-		if (s.has_edge(e))
+		if (s.has_edge(e.ei))
 		    continue;
 		if (s.has_vertex(e.vi_to))
 		{
@@ -1039,20 +1305,20 @@ namespace gSpan
 	    return failure;
 	}
 
-	template<class Policy>
-	bool fail_early_termination(const Projected<Policy>* p, const Policy& pl)
+	template<class Policy, class P>
+	bool fail_early_termination(const P* p, const Policy& pl)
 	{
-	    for (typename Projected<Policy>::const_iterator i = p->begin(); i != p->end(); ++i)
+	    for (typename P::const_iterator i = p->begin(); i != p->end(); ++i)
 		if (fail_early_termination_sbg(*i, pl))
 		    return true;
 	    return false;
 	}
 
-	template<class Policy>
+	template<class Policy, class P, class Map_VI_VI_VL_EL_VL_P>
 	bool test_min_support_term(const DFSCode<Policy>& dfsc,
-				   Projected<Policy>* projected,
-				   const Projected<Policy>* prev,
-				   typename MapTraits<Policy>::Map_VI_VI_VL_EL_VL_P& xedges,
+				   P* projected,
+				   const P* prev,
+				   Map_VI_VI_VL_EL_VL_P& xedges,
 				   bool& brloop,
 				   int minsup,
 				   std::vector<bool>& early_termin,
@@ -1084,10 +1350,11 @@ namespace gSpan
 		return false;
 	    }
 	    
-	    if (projected->mgsbg_size() < minsup)
+	    if (projected->support() < minsup)
 		return false;
 
-	    if (projected->mgsbg_size() == prev->mgsbg_size())
+	    if (projected->support() == prev->support())
+	    //if (projected->mgsbg_size() == prev->mgsbg_size())
 		closed[dfsc.size()-2] = false;
 
 	    // detect early termination	    
@@ -1109,9 +1376,9 @@ namespace gSpan
 	// for one vertex as root
 	// test support and set early termination
 	// return true if support is sufficient
-	template<class Policy>
+	template<class Policy, class P>
 	bool test_support_term(const DFSCode<Policy>& dfsc,
-			       const Projected<Policy>* projected,
+			       const P* projected,
 			       const std::map<typename Policy::vertex_label_t, int>& vlab_count,
 			       int minsup,
 			       std::map<typename Policy::vertex_label_t, bool>& early_termin_1v,
@@ -1119,7 +1386,7 @@ namespace gSpan
 	{
 	    assert(dfsc.size() == 1);
 
-	    int sup = projected->mgsbg_size();
+	    int sup = projected->support();
 	    if (sup < minsup)
 		return false;
 	    const EdgeCode<Policy>& ec = dfsc.back();
@@ -1148,9 +1415,9 @@ namespace gSpan
 	}
 
  
-	template<class Policy, class Output>
-	void project(const Projected<Policy>* projected,
-		     const Projected<Policy>* prev_projected,
+	template<class Policy, class P, class Output>
+	void project(const P* projected,
+		     const P* prev_projected,
 		     DFSCode<Policy>& dfsc,
 		     int minsup,
 		     const Policy& pl,
@@ -1161,7 +1428,7 @@ namespace gSpan
 #ifdef DEBUG_PRINT
 	    std::cerr << "=========== project() ===========\n"
 		      << "DFSC: " << dfsc << std::endl
-		      << "P supp=" << projected->mgsbg_size() << "\n"<< *projected
+		      << "P supp=" << support(*projected) << "\n"<< *projected
 		      << std::endl;
 #endif
 
@@ -1175,9 +1442,9 @@ namespace gSpan
 
 	    // --------------------------------------------------------------
 	    // enumerate
-	    typedef typename MapTraits<Policy>::Map_VI_EL_P    BEdges;
-	    typedef typename MapTraits<Policy>::Map_VI_EL_VL_P FEdges;
-	    typedef typename MapTraits<Policy>::Map_VI_VI_VL_EL_VL_P XEdges;
+	    typedef typename MapTraits<Policy, P>::Map_VI_EL_P    BEdges;
+	    typedef typename MapTraits<Policy, P>::Map_VI_EL_VL_P FEdges;
+	    typedef typename MapTraits<Policy, P>::Map_VI_VI_VL_EL_VL_P XEdges;
 
 	    std::less<VI> vi_less;
 	    Elabel_less<Policy> el_less(pl);
@@ -1287,8 +1554,7 @@ namespace gSpan
 	    // backward
 	    brloop = false;
 	    for (typename BEdges::iterator i1 = b_edges.begin(); i1 != b_edges.end() && !brloop; ++i1)
-		for (typename BEdges::mapped_type::iterator i2 = i1->second.begin();
-		     i2 != i1->second.end() && !brloop; ++i2)
+		for (typename BEdges::mapped_type::iterator i2 = i1->second.begin(); i2 != i1->second.end() && !brloop; ++i2)
 		{
 		    EdgeCode ec(maxtoc, i1->first, pl.void_vlabel(), i2->first, pl.void_vlabel());
 		    dfsc.push_back(ec);
@@ -1355,7 +1621,8 @@ namespace gSpan
 					  << i4->first<<", "<<i5->first<<std::endl;
 				std::cerr << "X: " << i5->second << std::endl;
 #endif
-				if (i5->second.mgsbg_size() == projected->mgsbg_size())
+				if (i5->second.support() == projected->support())
+				//if (i5->second.mgsbg_size() == projected->mgsbg_size())
 				{
 #ifdef DEBUG_PRINT
 				    std::cerr << "x_closed = false\n";
@@ -1369,7 +1636,7 @@ namespace gSpan
 
 	    if (closed.back() && x_closed)
 		result(dfsc, *projected);
-
+	    
 #ifdef DEBUG_PRINT
 	    std::cerr << "RET\n";
 #endif
@@ -1387,12 +1654,48 @@ namespace gSpan
     {
 	MapValueCountDefault mvc;
 
-	typedef typename MapTraits<Policy>::Map_VL_EL_VL_P M3;
+	typedef ProjectedManyGraph_<Policy> P;
+	typedef typename MapTraits<Policy, P>::Map_VL_EL_VL_P M3;
 	Vlabel_less<Policy> vl_less(pl);
 	M3 root(vl_less);
 
 	for (; tg_begin != tg_end; ++tg_begin)
 	    enum_one_edges(root, *tg_begin, pl, mvc);
+
+	DFSCode<Policy> dfsc;
+	
+	typedef typename M3::const_iterator I1;
+	typedef typename M3::mapped_type::const_iterator I2;
+	typedef typename M3::mapped_type::mapped_type::const_iterator I3;
+	for (I1 i1 = root.begin(); i1 != root.end(); ++i1)
+	    for (I2 i2 = i1->second.begin(); i2 != i1->second.end(); ++i2)
+		for (I3 i3 = i2->second.begin(); i3 != i2->second.end(); ++i3)
+		{
+		    EdgeCode<Policy> ec(0, 1, i1->first, i2->first, i3->first);
+#ifdef DEBUG_PRINT
+		    std::cerr << "================ "
+			      << "TOP LEVEL iteration with EDGECODE: " << ec
+			      << " ================" << std::endl;
+#endif
+		    dfsc.push_back(ec);
+		    gspan_detail::project(i3->second, dfsc, minsup, pl, result);
+		    dfsc.pop_back();
+		}
+    }
+
+
+
+    template<class Graph, class Output, class Policy>
+    void gspan(const Graph& graph, int minsup, const Policy& pl, Output& result)
+    {
+	MapValueCountDefault mvc;
+
+	typedef ProjectedOneGraph_<Policy> P;
+	typedef typename MapTraits<Policy, P>::Map_VL_EL_VL_P M3;
+	Vlabel_less<Policy> vl_less(pl);
+	M3 root(vl_less);
+
+	enum_one_edges(root, graph, pl, mvc);
 
 	DFSCode<Policy> dfsc;
 	
@@ -1429,7 +1732,8 @@ namespace gSpan
 	std::map<typename Policy::vertex_label_t, int> vlab_count;
 	MapValueCount<std::map<typename Policy::vertex_label_t, int> > mvc(vlab_count);
 
-	typedef typename MapTraits<Policy>::Map_VL_EL_VL_P M3;
+	typedef ProjectedManyGraph_<Policy> P;
+	typedef typename MapTraits<Policy, P>::Map_VL_EL_VL_P M3;
 	Vlabel_less<Policy> vl_less(pl);
 	M3 root(vl_less);
 
@@ -1476,7 +1780,75 @@ namespace gSpan
 #endif
 		    if (test_support_term(dfsc, &i3->second, vlab_count, minsup, early_termin_1v, pl))
 		    {
-			const Projected<Policy>* nullp = 0;
+			const P* nullp = 0;
+			project(&i3->second, nullp, dfsc, minsup, pl, result,
+				early_termin, closed);
+		    }
+		    closed.pop_back();
+		    early_termin.pop_back();
+		    dfsc.pop_back();
+		}
+	}
+    }
+
+
+
+    template<class Graph, class Output, class Policy>
+    void closegraph(const Graph& graph, int minsup, const Policy& pl, Output& result)
+    {
+	using namespace closegraph_detail;
+
+	std::map<typename Policy::vertex_label_t, int> vlab_count;
+	MapValueCount<std::map<typename Policy::vertex_label_t, int> > mvc(vlab_count);
+
+	typedef ProjectedOneGraph_<Policy> P;
+	typedef typename MapTraits<Policy, P>::Map_VL_EL_VL_P M3;
+	Vlabel_less<Policy> vl_less(pl);
+	M3 root(vl_less);
+
+	enum_one_edges(root, graph, pl, mvc);
+
+	DFSCode<Policy> dfsc;
+	std::map<typename Policy::vertex_label_t, bool> early_termin_1v;
+	std::vector<bool> early_termin;
+	std::vector<bool> closed;
+	
+	typedef typename M3::const_iterator I1;
+	typedef typename M3::mapped_type::const_iterator I2;
+	typedef typename M3::mapped_type::mapped_type::const_iterator I3;
+	for (I1 i1 = root.begin(); i1 != root.end(); ++i1)
+	{
+	    bool break_loop = false;
+	    if (early_termin_1v[i1->first])
+	    {
+#ifdef DEBUG_PRINT
+		std::cerr << "Early Termination for edgecode beginning with " << i1->first << std::endl;
+#endif
+	    	break_loop = true;
+	    }
+
+	    for (I2 i2 = i1->second.begin(); i2 != i1->second.end() && !break_loop; ++i2)
+		for (I3 i3 = i2->second.begin(); i3 != i2->second.end() && !break_loop; ++i3)
+		{
+		    if (early_termin_1v[i1->first]) // goto to first loop
+		    {
+			break_loop = true;
+			break;
+		    }
+
+		    EdgeCode<Policy> ec(0, 1, i1->first, i2->first, i3->first);
+		    dfsc.push_back(ec);
+		    early_termin.push_back(false);
+		    closed.push_back(true);
+
+#ifdef DEBUG_PRINT
+		    std::cerr << "================ "
+			      << "TOP LEVEL iteration with EDGECODE: " << ec
+			      << " ================" << std::endl;
+#endif
+		    if (test_support_term(dfsc, &i3->second, vlab_count, minsup, early_termin_1v, pl))
+		    {
+			const P* nullp = 0;
 			project(&i3->second, nullp, dfsc, minsup, pl, result,
 				early_termin, closed);
 		    }

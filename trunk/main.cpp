@@ -16,7 +16,8 @@ typedef Policy::vertex_index_t VI;
 typedef gSpan::EdgeCode<Policy> EdgeCode;
 typedef gSpan::DFSCode<Policy> DFSCode;
 typedef gSpan::SBG<Policy> SBG;
-typedef gSpan::Projected<Policy> Projected;
+typedef gSpan::ProjectedManyGraph_<Policy> ProjectedManyGraph;
+typedef gSpan::ProjectedOneGraph_<Policy>  ProjectedOneGraph;
 
 std::vector<std::string> result;
 bool f;
@@ -24,6 +25,8 @@ bool f;
 std::istream& contruct_dfsc(DFSCode& dfsc, std::string& tr_name, std::istream& is)
 {
     std::map<VI, VL> vlabels;
+    int vcorr = 0;
+    bool first_vertex = true;
     
     char line[1024];
     while (true)
@@ -63,14 +66,25 @@ std::istream& contruct_dfsc(DFSCode& dfsc, std::string& tr_name, std::istream& i
         else if (result[0] == "v")
         {
             assert(result.size() == 3);
-            vlabels[atoi(result[1].c_str())] = result[2];
+
+	    VI vi = atoi(result[1].c_str());
+	    if (first_vertex && vi == 1)
+		vcorr = 1;
+	    vi -= vcorr;
+            vlabels[vi] = result[2];
+	    first_vertex = false;
         }
         else if (result[0] == "e")
         {
-            assert(result.size() == 4);
-            VI from   = atoi(result[1].c_str());
-            VI to     = atoi(result[2].c_str());
-            EL elabel = result[3];
+            assert(result.size() == 4 || result.size() == 3);
+	    
+            VI from   = atoi(result[1].c_str()) - vcorr;
+            VI to     = atoi(result[2].c_str()) - vcorr;
+
+	    EL elabel = "_";
+	    if (result.size() == 4)
+		elabel = result[3];
+
 	    EdgeCode ec(from, to, vlabels[from], elabel, vlabels[to]);
             dfsc.push_back(ec);
         }
@@ -81,53 +95,27 @@ std::istream& contruct_dfsc(DFSCode& dfsc, std::string& tr_name, std::istream& i
 enum PatternViewMode { PV_LG, PV_DFSC, PV_EDGE} pattern_view_mode;
 enum MappingViewMode { MV_NONE, MV_TABLE, MV_MAP } mapping_view_mode;
 
-class Result
+// *****************************************************************************
+//                          ResultOneGraph
+// *****************************************************************************
+class ResultOneGraph
 {
 public:
-    Result(std::ostream& ostr, std::map<const Graph*, std::string>& tr_names, const Policy& pl)
-	: ostr(ostr), tr_names(tr_names), pl(pl), num_patterns(0) {}
-    void operator() (const DFSCode& dfsc, const Projected& projected);
+    ResultOneGraph(std::ostream& ostr, const Policy& pl)
+	: ostr(ostr), pl(pl), num_patterns(0) {}
+    void operator() (const DFSCode& dfsc, const ProjectedOneGraph& projected);
 private:
     std::ostream& ostr;
-    std::map<const Graph*, std::string>& tr_names;
     const Policy& pl;
     int num_patterns;
-
-    void print_info(const Projected& projected, bool onnewline, bool ismap_view) const;
+    void print_info(const ProjectedOneGraph& projected, bool onnewline, bool ismap_view) const;
 };
 
-void Result::print_info(const Projected& projected, bool onnewline, bool ismap_view) const
-{
-    const int supp = projected.mgsbg_size();
-    const Projected::MGSBGconst_iterator it_p_end = projected.mgsbg_end();
-    if (!onnewline)
-    {
-	ostr << "#support: " << supp;
-	if (!ismap_view)
-	{
-	    ostr << std::endl << "#foundin:";
-	    for (Projected::MGSBGconst_iterator it_p = projected.mgsbg_begin();
-		 it_p != it_p_end; ++it_p)
-		ostr << " " << tr_names[it_p->first];
-	}
-	ostr << std::endl;
-    }
-    else
-    {
-	ostr << "support=" << supp << "; ";
-	ostr << "foundin:";
-	for (Projected::MGSBGconst_iterator it_p = projected.mgsbg_begin(); it_p != it_p_end; ++it_p)
-	    ostr << " " << tr_names[it_p->first];
-    }
-}
-
-
-void Result::operator() (const DFSCode& dfsc, const Projected& projected)
+void ResultOneGraph::operator() (const DFSCode& dfsc, const ProjectedOneGraph& projected)
 {
     ++num_patterns;
     
     const int NUM_EDGES = dfsc.size();
-    const Projected::MGSBGconst_iterator it_p_end = projected.mgsbg_end();
 
     std::vector<int> col_width(NUM_EDGES, 8);
     std::map<VI,VL> vlm;
@@ -180,10 +168,155 @@ void Result::operator() (const DFSCode& dfsc, const Projected& projected)
 
     print_info(projected, inline_view, mapping_view_mode != MV_NONE);
 
+    const ProjectedOneGraph::SBGSconst_iterator it_p_end = projected.sbgs_end();
+
     switch (mapping_view_mode)
     {
     case MV_MAP:
-	for (Projected::MGSBGconst_iterator it_p = projected.mgsbg_begin(); it_p != it_p_end; ++it_p)
+	for (ProjectedOneGraph::SBGSconst_iterator it_p = projected.sbgs_begin();
+	     it_p != it_p_end; ++it_p)
+	{
+	    const SBG* s = *it_p;
+	    do
+	    {
+		std::map<VI, VI> vvm;
+		for (int i = 0; i < NUM_EDGES; ++i)
+		{
+		    const EdgeCode& ec = dfsc[i];
+		    vvm[ec.vi_from] = (*s)[i].vi_from;
+		    vvm[ec.vi_to]   = (*s)[i].vi_to;
+		}
+		ostr << "#mv: ";
+		for (std::map<VI, VI>::const_iterator i = vvm.begin(); i != vvm.end(); ++i)
+		    ostr << i->first << "->" << i->second << " ";
+		ostr << std::endl;
+		ostr << "#me: ";
+		for (int i = 0; i < NUM_EDGES; ++i)
+		    ostr << i << "->" << (*s)[i].ei << " ";
+		ostr << std::endl;
+
+	    } while ( (s = s->automorph_list));
+	}
+	break;
+
+    case MV_TABLE:
+	for (ProjectedOneGraph::SBGSconst_iterator it_p = projected.sbgs_begin();
+	     it_p != it_p_end; ++it_p)
+	{
+	    const SBG* s = *it_p;
+	    do
+	    {
+		for (int i = 0; i < NUM_EDGES; ++i)
+		    ostr << " (" << (*s)[i].vi_from << "," << (*s)[i].vi_to << ")" << (*s)[i].ei;
+		ostr << std::endl;
+	    } while ( (s = s->automorph_list));
+	}
+	break;
+
+    default:
+	break;
+    }
+
+    ostr << std::endl;
+
+}
+
+
+void ResultOneGraph::print_info(const ProjectedOneGraph& projected, bool onnewline, bool ismap_view) const
+{
+    const int supp = projected.support();
+
+    if (!onnewline)
+    {
+	ostr << "#support: " << supp;
+	ostr << std::endl;
+    }
+    else
+    {
+	ostr << "support=" << supp << "; ";
+    }
+}
+
+
+// *****************************************************************************
+//                          ResultManyGraph
+// *****************************************************************************
+class ResultManyGraph
+{
+public:
+    ResultManyGraph(std::ostream& ostr, std::map<const Graph*, std::string>& tr_names, const Policy& pl)
+	: ostr(ostr), tr_names(tr_names), pl(pl), num_patterns(0) {}
+    void operator() (const DFSCode& dfsc, const ProjectedManyGraph& projected);
+private:
+    std::ostream& ostr;
+    std::map<const Graph*, std::string>& tr_names;
+    const Policy& pl;
+    int num_patterns;
+
+    void print_info(const ProjectedManyGraph& projected, bool onnewline, bool ismap_view) const;
+};
+
+void ResultManyGraph::operator() (const DFSCode& dfsc, const ProjectedManyGraph& projected)
+{
+    ++num_patterns;
+    
+    const int NUM_EDGES = dfsc.size();
+    const ProjectedManyGraph::MGSBGconst_iterator it_p_end = projected.mgsbg_end();
+
+    std::vector<int> col_width(NUM_EDGES, 8);
+    std::map<VI,VL> vlm;
+
+    bool inline_view = false;
+
+    BOOST_FOREACH(const EdgeCode& ec, dfsc)
+    {
+	if (!pl.void_vlabel(ec.vl_from)) vlm[ec.vi_from] = ec.vl_from;
+	if (!pl.void_vlabel(ec.vl_to))   vlm[ec.vi_to]   = ec.vl_to;
+    }
+
+    switch (pattern_view_mode)
+    {
+    case PV_LG:
+	ostr << "t # " << num_patterns << std::endl;
+	for (typename std::map<VI,VL>::const_iterator i = vlm.begin(); i != vlm.end(); ++i)
+	    ostr << "v " << i->first << " " << i->second << std::endl;
+	BOOST_FOREACH(const EdgeCode& ec, dfsc)
+	    ostr << "e " << ec.vi_from << " " << ec.vi_to << " " << ec.el << std::endl;
+	break;
+	
+    case PV_DFSC:
+	ostr << "#pattern: " << num_patterns << std::endl;
+	BOOST_FOREACH(const EdgeCode& ec, dfsc)
+	{
+	    ostr << '\t';
+	    ostr << "(" << ec.vi_from << "," << ec.vi_to << ", "
+		 << vlm[ec.vi_from] << "," << ec.el << "," << vlm[ec.vi_to] << ")" << std::endl;
+	}
+	break;
+	
+    case PV_EDGE:
+	inline_view = (mapping_view_mode == MV_NONE);
+
+	ostr << "#pattern: " << num_patterns << " : ";
+	BOOST_FOREACH(const EdgeCode& ec, dfsc)
+	{
+	    ostr << "(" << ec.vi_from << "," << ec.vi_to << ", "
+		 << vlm[ec.vi_from] << "," << ec.el << "," << vlm[ec.vi_to] << ") ";
+	}
+	if (!inline_view)
+	    ostr << std::endl;
+	break;
+
+    default:
+	break;
+    }
+
+    print_info(projected, inline_view, mapping_view_mode != MV_NONE);
+
+    switch (mapping_view_mode)
+    {
+    case MV_MAP:
+	for (ProjectedManyGraph::MGSBGconst_iterator it_p = projected.mgsbg_begin(); it_p != it_p_end; ++it_p)
 	    BOOST_FOREACH(const SBG* sbg, it_p->second)
 	    {
 		const SBG* s = sbg;
@@ -211,7 +344,7 @@ void Result::operator() (const DFSCode& dfsc, const Projected& projected)
 	break;
 
     case MV_TABLE:
-	for (Projected::MGSBGconst_iterator it_p = projected.mgsbg_begin(); it_p != it_p_end; ++it_p)
+	for (ProjectedManyGraph::MGSBGconst_iterator it_p = projected.mgsbg_begin(); it_p != it_p_end; ++it_p)
 	    BOOST_FOREACH(const SBG* sbg, it_p->second)
 	    {
 		const SBG* s = sbg;
@@ -228,41 +361,40 @@ void Result::operator() (const DFSCode& dfsc, const Projected& projected)
     default:
 	break;
     }
+
     ostr << std::endl;
 }
 
-/*
-void Result::print_tgf(const DFSCode& dfsc, const Projected& projected)
+
+void ResultManyGraph::print_info(const ProjectedManyGraph& projected, bool onnewline, bool ismap_view) const
 {
-    std::map<VI,VL> vlabels;
-    BOOST_FOREACH(const EdgeCode& ec, dfsc)
+    const int supp = projected.support();
+    const ProjectedManyGraph::MGSBGconst_iterator it_p_end = projected.mgsbg_end();
+    if (!onnewline)
     {
-	if (!pl.void_vlabel(ec.vl_from))vlabels[ec.vi_from] = ec.vl_from;
-	if (!pl.void_vlabel(ec.vl_to))  vlabels[ec.vi_to] = ec.vl_to;
+	ostr << "#support: " << supp;
+	if (!ismap_view)
+	{
+	    ostr << std::endl << "#foundin:";
+	    for (ProjectedManyGraph::MGSBGconst_iterator it_p = projected.mgsbg_begin();
+		 it_p != it_p_end; ++it_p)
+		ostr << " " << tr_names[it_p->first];
+	}
+	ostr << std::endl;
     }
-    
-    ostr << "t # " << ++ngraph << std::endl;
-    for (typename std::map<VI,VL>::const_iterator i = vlabels.begin(); i != vlabels.end(); ++i)
-	ostr << "v " << i->first << " " << i->second << std::endl;
-    BOOST_FOREACH(const EdgeCode& ec, dfsc)
-	ostr << "e " << ec.vi_from << " " << ec.vi_to << " " << ec.el << std::endl;
-
-    std::set<const Graph*> gg;
-    BOOST_FOREACH(const SBG& sbg, projected)
-	gg.insert(sbg.get_graph());
-    ostr << "#found_in " << projected.mgsbg_size() << ": ";
-    for (typename std::set<const Graph*>::const_iterator i = gg.begin(); i != gg.end(); ++i)
+    else
     {
-	ostr << tr_names[*i];
-	typename std::set<const Graph*>::const_iterator tmpi = i;
-	if (++tmpi != gg.end()) ostr << ", ";
-	else                    ostr << std::endl;
+	ostr << "support=" << supp << "; ";
+	ostr << "foundin:";
+	for (ProjectedManyGraph::MGSBGconst_iterator it_p = projected.mgsbg_begin(); it_p != it_p_end; ++it_p)
+	    ostr << " " << tr_names[it_p->first];
     }
-    ostr << std::endl;
 }
 
-*/
 
+// *****************************************************************************
+//                          main
+// *****************************************************************************
 std::ostream& usage(std::ostream& ostr)
 { 
     return ostr << "Usage: CMD <minsup> [{-dfsc -edge}] [{ -m -mt }] " << std::endl << std::endl;
@@ -343,7 +475,17 @@ int main(int argc, char** argv)
 #endif
 	}
     }
-	
-    Result result(std::cout, tr_names, pl);
-    gSpan::GSPAN_FUNCTION(gr_trans.begin(), gr_trans.end(), minsup, pl, result);
+
+
+    if (gr_trans.size() == 1)
+    {
+	ResultOneGraph result(std::cout, pl);
+	gSpan::GSPAN_FUNCTION(gr_trans.back(), minsup, pl, result);
+    }
+    else
+    {
+	ResultManyGraph result(std::cout, tr_names, pl);
+	gSpan::GSPAN_FUNCTION(gr_trans.begin(), gr_trans.end(), minsup, pl, result);
+    }
+    
 }
