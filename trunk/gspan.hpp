@@ -60,6 +60,7 @@ namespace gSpan
 	    :vi_from(vi_from), vi_to(vi_to), vl_from(vl_from), vl_to(vl_to), el(el) {}
 	EdgeCode() {}
 	bool is_forward() const { return vi_from < vi_to; }
+	bool is_backward() const { return ! is_forward(); }
 	operator std::pair<VI,VI> () const { return std::pair<VI,VI>(vi_from,vi_to); }
     };
 
@@ -625,7 +626,7 @@ namespace gSpan
     //                          Maps
     // *****************************************************************************
     template<class M1>
-    typename M1::mapped_type&
+    inline typename M1::mapped_type&
     mapped_val(M1& mp1key, const typename M1::key_type& k1)
     {
 	typedef typename M1::value_type value_type;
@@ -633,7 +634,7 @@ namespace gSpan
     }
 
     template<class M2>
-    typename M2::mapped_type::mapped_type&
+    inline typename M2::mapped_type::mapped_type&
     mapped_val(M2& mp2key,
 	       const typename M2::key_type& k1,
 	       const typename M2::mapped_type::key_type& k2,
@@ -645,7 +646,7 @@ namespace gSpan
 
 
     template<class M3>
-    typename M3::mapped_type::mapped_type::mapped_type&
+    inline typename M3::mapped_type::mapped_type::mapped_type&
     mapped_val(M3& mp3key,
 	       const typename M3::key_type& k1,
 	       const typename M3::mapped_type::key_type& k2,
@@ -659,7 +660,7 @@ namespace gSpan
 
 
     template<class M4>
-    typename M4::mapped_type::mapped_type::mapped_type::mapped_type&
+    inline typename M4::mapped_type::mapped_type::mapped_type::mapped_type&
     mapped_val(M4& mp4key,
 	       const typename M4::key_type& k1,
 	       const typename M4::mapped_type::key_type& k2,
@@ -675,7 +676,7 @@ namespace gSpan
     }
 
     template<class M5>
-    typename M5::mapped_type::mapped_type::mapped_type::mapped_type::mapped_type&
+    inline typename M5::mapped_type::mapped_type::mapped_type::mapped_type::mapped_type&
     mapped_val(M5& mp5key,
 	       const typename M5::key_type& k1,
 	       const typename M5::mapped_type::key_type& k2,
@@ -1097,6 +1098,9 @@ namespace gSpan
 		    
 		}
 	    }
+	    if (!failure)
+		std::cerr << "!" << std::endl;
+		
 	    return failure;
 	}
 
@@ -1149,13 +1153,12 @@ namespace gSpan
 		return false;
 
 	    if (projected->support() == prev->support())
-	    //if (projected->mgsbg_size() == prev->mgsbg_size())
 		closed[dfsc.size()-2] = false;
 
 	    // detect early termination	    
 	    if (projected->size() == prev->size())
 	    {
-		if (!dfsc.back().is_forward() || !fail_early_termination(projected, pl))
+		if (dfsc.back().is_backward() || !fail_early_termination(projected, pl))
 		{
 #ifdef DEBUG_PRINT
 		    std::cerr << "Detect Early Termination for\n"
@@ -1417,7 +1420,6 @@ namespace gSpan
 				std::cerr << "X: " << i5->second << std::endl;
 #endif
 				if (i5->second.support() == projected->support())
-				//if (i5->second.mgsbg_size() == projected->mgsbg_size())
 				{
 #ifdef DEBUG_PRINT
 				    std::cerr << "x_closed = false\n";
