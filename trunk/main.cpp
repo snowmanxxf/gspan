@@ -133,8 +133,16 @@ void Result::operator() (const DFSCode& dfsc, const SMG& smg)
     print_pattern(dfsc);
     print_info(smg);
 
-    for (SMG::const_iterator i = smg.begin(); i != smg.end(); ++i)
-	print_mapping(dfsc, i->second);
+    if (mapping_view_mode != MV_NONE)
+    {
+	for (SMG::const_iterator i = smg.begin(); i != smg.end(); ++i)
+	{
+	    ostr << "#tograph: " << tr_names[i->first] << std::endl;
+	    print_mapping(dfsc, i->second);
+	}
+    }
+
+    ostr << std::endl;
 }
 
 
@@ -144,6 +152,8 @@ void Result::operator() (const DFSCode& dfsc, const SOG& sog)
     print_pattern(dfsc);
     print_info(sog);
     print_mapping(dfsc, sog);
+
+    ostr << std::endl;
 }
 
 
@@ -206,7 +216,6 @@ void Result::print_info(const SMG& smg) const
 	    for (SMG::const_iterator it = smg.begin(); it != smg.end(); ++it)
 		ostr << " " << tr_names[it->first];
 	}
-	ostr << std::endl;
     }
     else
     {
@@ -215,6 +224,7 @@ void Result::print_info(const SMG& smg) const
 	for (SMG::const_iterator it = smg.begin(); it != smg.end(); ++it)
 	    ostr << " " << tr_names[it->first];
     }
+    ostr << std::endl;
 }
 
 void Result::print_info(const SOG& sog) const
@@ -364,5 +374,5 @@ int main(int argc, char** argv)
     if (gr_trans.size() == 1)
 	gSpan::GSPAN_FUNCTION(gr_trans.back(), minsup, pl, result);
     else
-	gSpan::GSPAN_FUNCTION(gr_trans.begin(), gr_trans.end(), minsup, pl, result);    
+	gSpan::GSPAN_FUNCTION(gr_trans.begin(), gr_trans.end(), minsup, pl, result);
 }
