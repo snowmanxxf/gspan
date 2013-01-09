@@ -51,21 +51,9 @@ while (defined($line = <STDIN>))
 		print "\t" . $values[1] . $edgeop . $values[2] . "\n";
 	    }
 	}
-	elsif ($values[0] =~ "#undirected")
+	elsif ($values[0] =~ "^#")
 	{
-	    $directed = 0;
-	    $graph_kind = "graph";
-	    $edgeop  = " -- ";
-	}
-	elsif ($values[0] =~ "#directed")
-	{
-	    $directed = 1;
-	    $graph_kind = "digraph";
-	    $edgeop  = " -> ";
-	}
-	elsif ($values[0] =~ "#found_in")
-	{
-	    print "graph [comment=\"GRAPH " . $graph_id . "\"]\n"
+	    print $line;
 	}
     }
 }
