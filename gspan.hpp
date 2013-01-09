@@ -1261,7 +1261,6 @@ namespace gSpan
 						      std::set<int>& vidx) const
 	{
 	    std::set<VI> vii_1;
-
 	    // find Edge in BEdges
 	    if (rightmost)
 	    {
@@ -1273,28 +1272,57 @@ namespace gSpan
 			    if (i2->first == ec.el)
 				vii_1.insert(i1->first);
 	    }
-	    
+
+#ifdef DEBUG_PRINT
+	    if (!vii_1.empty())
+	    {
+		std::cerr << "fail_et(): after backward search: VII_1: ";
+		std::copy(vii_1.begin(), vii_1.end(), std::ostream_iterator<VI>(std::cerr, " "));
+		std::cerr << std::endl;
+	    }
+
+	    int n_bck = vii_1.size();
+#endif
+    
 	    // find Edge in XEdges
 	    find_xedges_vito(x_edges, ec.vi_from, ec.vl_to, ec.el, vii_1);
 
+#ifdef DEBUG_PRINT
+	    if (n_bck < static_cast<int>(vii_1.size()))
+	    {
+		std::cerr << "fail_et(): after xedges search: VII_1: ";
+		std::copy(vii_1.begin(), vii_1.end(), std::ostream_iterator<VI>(std::cerr, " "));
+		std::cerr << std::endl;
+	    }
+#endif
 
-	    std::set<VI> vii_2;
+	    std::map<VI, std::set<int> > vii_2;
 	    for (typename std::set<VI>::const_iterator i = vii_1.begin(); i != vii_1.end(); ++i)
-		for (typename DFSCode<Policy>::const_iterator d = dfsc_.begin(); d != dfsc_.end(); ++d)
-		{
-		    if (d->vi_from == *i)
-			vii_2.insert(d->vi_to);
-		    if (d->vi_to == *i)
-			vii_2.insert(d->vi_from);
-		}
-
-
-	    for (typename std::set<VI>::const_iterator i = vii_2.begin(); i != vii_2.end(); ++i)
 		for (unsigned int idx = 0; idx != dfsc_.size(); ++idx)
 		{
 		    if (dfsc_[idx].vi_from == *i)
-			vidx.insert(idx);
+			vii_2[dfsc_[idx].vi_to].insert(idx);
 		    if (dfsc_[idx].vi_to == *i)
+			vii_2[dfsc_[idx].vi_from].insert(idx);
+		}
+
+
+#ifdef DEBUG_PRINT
+	    if (!vii_2.empty())
+	    {
+		std::cerr << "fail_et():                      VII_2: ";
+		for (typename std::map<VI, std::set<int> >::const_iterator i = vii_2.begin(); i != vii_2.end(); ++i)
+		    std::cerr << i->first << " ";
+		std::cerr << std::endl;
+	    }
+#endif
+
+	    for (typename std::map<VI, std::set<int> >::const_iterator i = vii_2.begin(); i != vii_2.end(); ++i)
+		for (unsigned int idx = 0; idx != dfsc_.size(); ++idx)
+		{
+		    if (dfsc_[idx].vi_from == i->first && i->second.count(idx) == 0)
+			vidx.insert(idx);
+		    if (dfsc_[idx].vi_to == i->first && i->second.count(idx) == 0)
 			vidx.insert(idx);
 		}
 	}
@@ -1437,7 +1465,12 @@ namespace gSpan
 		    {
 			// detect early termination
 			if (new_prj.size() == projected->size())
+			{
+#ifdef DEBUG_PRINT
+			    std::cerr << "detect early termination for backward: " << ec << std::endl;
+#endif
 			    early_termin_.back() = true;
+			}
 
 			if (new_prj.support() >= minsup_)
 			{
@@ -1472,7 +1505,12 @@ namespace gSpan
 			{
 			    // detect early termination
 			    if (new_prj.size() == projected->size())
+			    {
+#ifdef DEBUG_PRINT
+				std::cerr << "detect early termination for forward: " << ec << std::endl;
+#endif
 				early_termin_.back() = true;
+			    }
 			    
 			    if (new_prj.support() >= minsup_)
 			    {
@@ -1485,8 +1523,26 @@ namespace gSpan
 			    {
 				std::set<int> idxs;
 				fail_et(ec, ec.vi_from == maxtoc, b_edges, x_edges, idxs);
+
+#ifdef DEBUG_PRINT
+				if (!idxs.empty())
+				    std::cerr << "fail early termination for levels: ";
+#endif
+
 				for (std::set<int>::const_iterator ii = idxs.begin(); ii != idxs.end(); ++ii)
+				{
+#ifdef DEBUG_PRINT
+				    std::cerr << *ii << " ";
+#endif
 				    early_termin_[*ii] = false;
+				}
+
+#ifdef DEBUG_PRINT
+				if (!idxs.empty())
+				    std::cerr << std::endl;
+#endif
+
+
 			    }
 			}
 			else
