@@ -1,0 +1,24 @@
+# test failure early termination (case 1)
+
+t # 0
+v 0 Y
+v 1 Z
+v 2 X
+v 3 X
+e 0 2 b
+e 3 0 a
+e 3 1 c
+e 1 2 d
+
+t # 1
+v 0 X
+v 1 X
+v 2 X
+v 3 Y
+v 4 Z
+e 3 1 b
+e 2 3 a
+e 2 4 c
+e 4 0 d
+
+

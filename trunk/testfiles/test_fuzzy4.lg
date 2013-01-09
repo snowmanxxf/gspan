@@ -1,0 +1,29 @@
+# test on fuzzy mining 1
+
+t # 0
+v 0 A
+v 1 B
+v 2 C
+
+v 3 D
+e 0 1 a
+e 1 2 a
+e 2 0 a
+
+e 0 3 b
+
+
+t # 1
+v 0 A
+v 1 B
+v 2 C
+v 3 A
+
+v 4 D
+
+e 0 1 a
+e 1 2 a
+e 2 3 a
+
+e 0 4 b
+
