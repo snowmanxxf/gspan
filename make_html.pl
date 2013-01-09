@@ -89,8 +89,19 @@ sub process_file
 }
 
 
-my $tr_filename = $ARGV[0];
+my $input_file  = $ARGV[0];
 my $minsupport  = $ARGV[1];
+my $tr_filename;
+
+if ($input_file =~ ".*.lg")
+{
+    $tr_filename = $input_file;
+}
+elsif ($input_file =~ ".*.tgf")
+{
+    $tr_filename = "/tmp/tr_graphs.lg";
+    system("./tgf_to_lg.pl <$input_file > $tr_filename");
+}
 
 open HTML_FILE, ">", $html_file;
  
@@ -104,6 +115,7 @@ print HTML_FILE "<title>Frequent Graphs</title>\n";
 print HTML_FILE "</head>\n";
 print HTML_FILE "<body>\n";
 print HTML_FILE "<h2> INPUT GRAPHS </h2>\n";
+
 process_file $tr_filename, "graph_";
 
 # --------------------------------
@@ -114,7 +126,7 @@ system("cat $tr_filename | ./closegraph $minsupport > /tmp/patterns.lg");
 # --------------------------------
 # process pattern_file
 # --------------------------------
-print HTML_FILE "<h2> FOUND PATTERNS </h2>\n";
+print HTML_FILE "<h2> FOUND PATTERNS, minimum support=$minsupport </h2>\n";
 process_file "/tmp/patterns.lg", "pattern_";
 
 print HTML_FILE "</body>\n";
