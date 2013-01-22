@@ -6,9 +6,6 @@ use warnings;
 my $html_image_dir = "images";
 my $html_file = "frequent_graphs.html";
 
-# <object data="imgfile" type="image/???"> </object>
-# <br /> Comments
-# <br />
 sub process_file
 {
     my $img_prefix = $_[1];
@@ -58,6 +55,7 @@ sub process_file
 	    {
 		if (defined($graph_id))
 		{
+		    #print "|" . $line . "!";
 		    $comments{$graph_id} = $comments{$graph_id} . $line;
 		}
 		else
@@ -83,8 +81,11 @@ sub process_file
 	system("echo -n make file: $result_file ... ; neato -Tpng -o $result_file /tmp/dotfile && echo ' done'; rm -f /tmp/dotfile");
 
 	print HTML_FILE "<object data=\"$result_file\" type=\"image/png\"> </object>\n";
-	print HTML_FILE "<br />" . "graph " . $graph_id . "<br />\n";
-	print HTML_FILE "<br />" . $comments{$graph_id} . "<br />\n";
+	print HTML_FILE "<br>" . "graph " . $graph_id . "<br />\n";
+
+	$comments{$graph_id} =~ s/\n/<br>/g;
+	$comments{$graph_id} =~ s/#mv/<br>#mv/g;
+	print HTML_FILE "<br>" . $comments{$graph_id} . "<br />\n";
     }
 }
 
@@ -121,7 +122,7 @@ process_file $tr_filename, "graph_";
 # --------------------------------
 # run closegraph $minsupport < $tr_filename > pattern_file
 # --------------------------------
-system("cat $tr_filename | ./closegraph $minsupport > /tmp/patterns.lg");
+system("cat $tr_filename | ./closegraph $minsupport -m > /tmp/patterns.lg");
 
 # --------------------------------
 # process pattern_file
