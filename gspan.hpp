@@ -184,22 +184,25 @@ namespace gSpan
 	    { delete rec_; }
 
 	int size() const { return depth_; }
-	const Edge<Policy>& operator[] (int i) const	{ if (!rec_) init_rec_(); return *rec_->get_edge(i); }
-	bool has_vertex(VI vi) const		        { if (!rec_) init_rec_(); return rec_->has_vertex(vi); }
-	bool has_edge(EI ei) const       	        { if (!rec_) init_rec_(); return rec_->has_edge(ei); }
+	void init_rec() const				{ if (!rec_) init_rec_(); }
+	const Edge<Policy>& operator[] (int i) const	{ init_rec(); return *rec_->get_edge(i); }
+	bool has_vertex(VI vi) const		        { init_rec(); return rec_->has_vertex(vi); }
+	bool has_edge(EI ei) const       	        { init_rec(); return rec_->has_edge(ei); }
 	const G* get_graph() const { return graph_; }
 	const Edge<Policy>& last_edge() const { return edge_; }
 	SBG* automorph_list;
+
+	static int num_common_edges(const SBG<Policy>& sbg1, const SBG<Policy>& sbg2);
     private:
 	const SBG* prev_;
 	Edge<Policy> edge_;
 
 	class R
 	{
+	public:
 	    std::vector<const Edge<Policy>*> e_;
 	    std::vector<short> vv_;
 	    std::vector<bool> ee_;
-	public:
 	    R(const Edge<Policy>& e, const G& g);
 	    R(const Edge<Policy>& e, const R* prev);
 	    const Edge<Policy>* get_edge(int i) const { return e_[i]; }
@@ -253,11 +256,27 @@ namespace gSpan
 	return out;
     }
  
+    template<class Policy>
+    int SBG<Policy>::num_common_edges(const SBG<Policy>& sbg1, const SBG<Policy>& sbg2)
+    {
+	sbg1.init_rec();
+	sbg2.init_rec();
+	const std::vector<bool>& ee1 = sbg1.rec_->ee_;
+	const std::vector<bool>& ee2 = sbg2.rec_->ee_;
+	int nce = 0;
+	int num = ee1.size();
+	for (int i = 0; i < num; ++i)
+	{
+	    if (ee1[i] && ee2[i])
+		++nce;
+	}
+	return nce;
+    }
 
     // *****************************************************************************
     //                          Projected
     // *****************************************************************************
-
+/*
     template<class Policy>
     int num_common_edges(const SBG<Policy>& sbg1, const SBG<Policy>& sbg2)
     {
@@ -273,10 +292,14 @@ namespace gSpan
 	}
 	
 	std::vector<typename Policy::edge_index_t> common;
+	common.reserve(num);
 	std::set_intersection(ei1.begin(), ei1.end(), ei2.begin(), ei2.end(), std::back_inserter(common));
-	return common.size();
+	int nce = common.size();
+	assert(nce == SBG<Policy>::num_common_edges(sbg1, sbg2));
+	return nce;
     }
-   
+*/
+
     //
     // Projected part visible for user
     //
@@ -303,7 +326,7 @@ namespace gSpan
 	bool has_common_edge = false;
 	BOOST_FOREACH(SBG<Policy>* sbg, sbgs_ptr_)
 	{
-	    int nce = num_common_edges(*s, *sbg);
+	    int nce = SBG<Policy>::num_common_edges(*s, *sbg);
 	    if (nce == ne)
 	    {
 		assert(s->automorph_list == 0);
@@ -1195,11 +1218,11 @@ namespace gSpan
 			EdgeCode<Policy> ec(0, 1, i1->first, i2->first, i3->first);
 			dfsc_.push_back(ec);
 
-#ifdef DEBUG_PRINT
+//#ifdef DEBUG_PRINT
 			std::cerr << "================ "
 				  << "TOP LEVEL iteration with EDGECODE: " << ec
 				  << " ================" << std::endl;
-#endif
+//#endif
 			const P& projected = i3->second;
 			if (projected.support() >=  minsup_)
 			{
@@ -1332,7 +1355,9 @@ namespace gSpan
 	void Closegraph_alg<Policy,Output,P>::project(const P* projected, const P* prev_projected)
 	{
 #ifdef DEBUG_PRINT
+	    static int num_calls = 0;
 	    std::cerr << "=========== project() ===========\n"
+		      << "Calls: " << ++num_calls << "\n"
 		      << "DFSC: " << dfsc_ << std::endl
 		      << "P supp=" << projected->support() << "\n"<< *projected
 		      << std::endl;
@@ -1450,7 +1475,6 @@ namespace gSpan
 	    // --------------------------------------------------------------
 	    // recursive process SBG children
 	    bool r_closed = true;
-
 	    // backward
 	    typedef typename BEdges::iterator BckI1;
 	    typedef typename BEdges::mapped_type::iterator BckI2;
@@ -1458,24 +1482,29 @@ namespace gSpan
 		for (BckI2 i2 = i1->second.begin(); i2 != i1->second.end() && !early_termin_.back(); ++i2)
 		{
 		    EdgeCode ec(maxtoc, i1->first, pl_.void_vlabel(), i2->first, pl_.void_vlabel());
+#ifdef DEBUG_PRINT
+		    DFSCode<Policy> old_dfsc = dfsc_;
+#endif
 		    dfsc_.push_back(ec);
 		    P& new_prj = i2->second;
 
 		    if (is_min(dfsc_, pl_))
 		    {
-			// detect early termination
-			if (new_prj.size() == projected->size())
-			{
-#ifdef DEBUG_PRINT
-			    std::cerr << "detect early termination for backward: " << ec << std::endl;
-#endif
-			    early_termin_.back() = true;
-			}
-
 			if (new_prj.support() >= minsup_)
 			{
 			    if (new_prj.support() == projected->support())
 				r_closed = false; // projected is not closed
+
+
+			    // detect early termination
+			    if (new_prj.size() == projected->size())
+			    {
+#ifdef DEBUG_PRINT
+				std::cerr << "detect early termination: " << old_dfsc
+					  << "while testing: " << ec << std::endl;
+#endif
+				early_termin_.back() = true;
+			    }
 
 			    project(&new_prj, projected);
 			}
@@ -1498,24 +1527,30 @@ namespace gSpan
 		    for (FwdI3 i3 = i2->second.begin(); i3 != i2->second.end() && !early_termin_.back(); ++i3)
 		    {
 			EdgeCode ec(i1->first, maxtoc+1, pl_.void_vlabel(), i2->first, i3->first);
+#ifdef DEBUG_PRINT
+			DFSCode<Policy> old_dfsc = dfsc_;
+#endif
 			dfsc_.push_back(ec);
 			P& new_prj = i3->second;
 
 			if (is_min(dfsc_, pl_))
-			{
-			    // detect early termination
-			    if (new_prj.size() == projected->size())
-			    {
-#ifdef DEBUG_PRINT
-				std::cerr << "detect early termination for forward: " << ec << std::endl;
-#endif
-				early_termin_.back() = true;
-			    }
-			    
+			{		    
 			    if (new_prj.support() >= minsup_)
 			    {
 				if (new_prj.support() == projected->support())
 				    r_closed = false; // projected is not closed
+
+				// detect early termination
+				if (new_prj.size() == projected->size())
+				{
+#ifdef DEBUG_PRINT
+				    std::cerr << "detect early termination: " << old_dfsc
+					      << "while testing: " << ec << " "
+					      << "new_prj.size=" << new_prj.size() << std::endl
+					      << "new_prj:\n" << new_prj << std::endl;
+#endif
+				    early_termin_.back() = true;
+				}
 
 				project(&new_prj, projected);
 			    }
