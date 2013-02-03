@@ -1,5 +1,5 @@
 
-#include "graph_policy.hpp"
+#include "graph_bgl_policy.hpp"
 #include "gspan.hpp"
 
 #include <iostream>
@@ -7,7 +7,12 @@
 #include <cstring>
 #include <boost/ptr_container/ptr_vector.hpp>
 
-typedef GraphPolicy Policy;
+double total_call;
+double cache_hit;
+
+using namespace bgl_adaptor;
+
+typedef GraphBGLPolicy Policy;
 typedef Policy::graph_t Graph;
 typedef Policy::vertex_label_t VL;
 typedef Policy::edge_label_t   EL;
@@ -80,7 +85,7 @@ std::istream& contruct_dfsc(DFSCode& dfsc, std::string& tr_name, std::istream& i
             VI from   = atoi(result[1].c_str()) - vcorr;
             VI to     = atoi(result[2].c_str()) - vcorr;
 
-	    EL elabel = "_";
+	    EL elabel = LABEL_NULL;
 	    if (result.size() == 4)
 		elabel = result[3];
 
@@ -94,6 +99,7 @@ std::istream& contruct_dfsc(DFSCode& dfsc, std::string& tr_name, std::istream& i
 // *****************************************************************************
 //                          Result
 // *****************************************************************************
+
 enum PatternViewMode { PV_LG, PV_DFSC, PV_EDGE} pattern_view_mode;
 enum MappingViewMode { MV_NONE, MV_TABLE, MV_MAP } mapping_view_mode;
 
@@ -103,14 +109,13 @@ std::map<const Policy::graph_t*, std::string> tr_names;
 class Result
 {
 public:
-    Result(std::ostream& ostr, const Policy& pl)
-	: ostr(ostr), pl(pl), num_patterns(0) {}
+    Result(std::ostream& ostr)
+	: ostr(ostr), num_patterns(0) {}
 
     void operator() (const DFSCode& dfsc, const SMG& smg);
     void operator() (const DFSCode& dfsc, const SOG& sog);
 private:
     std::ostream& ostr;
-    const Policy& pl;
     int num_patterns;
 
     void print_pattern(const DFSCode& dfsc) const;
@@ -162,8 +167,8 @@ void Result::print_pattern(const DFSCode& dfsc) const
     std::map<VI,VL> vlm;
     BOOST_FOREACH(const EdgeCode& ec, dfsc)
     {
-	if (!pl.void_vlabel(ec.vl_from)) vlm[ec.vi_from] = ec.vl_from;
-	if (!pl.void_vlabel(ec.vl_to))   vlm[ec.vi_to]   = ec.vl_to;
+	if (ec.vl_from != LABEL_NULL) vlm[ec.vi_from] = ec.vl_from;
+	if (ec.vl_to != LABEL_NULL)   vlm[ec.vi_to]   = ec.vl_to;
     }
 
     switch (pattern_view_mode)
@@ -231,10 +236,17 @@ void Result::print_info(const SOG& sog) const
 {
     const int supp = sog.support();
     if (!inline_view)
+    {
 	ostr << "#support: " << supp << std::endl;
+	ostr << "#num subgraphs: " << sog.num_sbgs() << std::endl;
+    }
     else
+    {
 	ostr << "support=" << supp << "; ";
+	ostr << "num subgraphs=" << sog.num_sbgs() << "; ";
+    }
 }
+
 
 void Result::print_mapping(const DFSCode& dfsc, const SOG& sog) const
 {
@@ -243,46 +255,48 @@ void Result::print_mapping(const DFSCode& dfsc, const SOG& sog) const
     switch (mapping_view_mode)
     {
     case MV_MAP:
-	BOOST_FOREACH(const SBG* s, sog)
-	{
-	    do
-	    {
-		std::map<VI, VI> vvm;
-		for (int i = 0; i < NUM_EDGES; ++i)
-		{
-		    const EdgeCode& ec = dfsc[i];
-		    vvm[ec.vi_from] = (*s)[i].vi_from;
-		    vvm[ec.vi_to]   = (*s)[i].vi_to;
-		}
-		ostr << "#mv: ";
-		for (std::map<VI, VI>::const_iterator i = vvm.begin(); i != vvm.end(); ++i)
-		    ostr << i->first << "->" << i->second << " ";
-		ostr << std::endl;
-		ostr << "#me: ";
-		for (int i = 0; i < NUM_EDGES; ++i)
-		    ostr << i << "->" << (*s)[i].ei << " ";
-		ostr << std::endl;
+        BOOST_FOREACH(const SBG* s, sog)
+        {
+            do
+            {
+                std::map<VI, VI> vvm;
+                for (int i = 0; i < NUM_EDGES; ++i)
+                {
+                    const EdgeCode& ec = dfsc[i];
+                    vvm[ec.vi_from] = (*s)[i]->vi_from;
+                    vvm[ec.vi_to]   = (*s)[i]->vi_to;
+                }
+                ostr << "#mv: ";
+                for (std::map<VI, VI>::const_iterator i = vvm.begin(); i != vvm.end(); ++i)
+                    ostr << i->first << "->" << i->second << " ";
+                ostr << std::endl;
+                ostr << "#me: ";
+                for (int i = 0; i < NUM_EDGES; ++i)
+                    ostr << i << "->" << (*s)[i]->ei << " ";
+                ostr << std::endl;
 
-	    } while ( (s = s->automorph_list));
-	}
-	break;
+            } while ( (s = s->automorph_list));
+        }
+        break;
 
     case MV_TABLE:
-	BOOST_FOREACH(const SBG* s, sog)
-	{
-	    do
-	    {
-		for (int i = 0; i < NUM_EDGES; ++i)
-		    ostr << " (" << (*s)[i].vi_from << "," << (*s)[i].vi_to << ")" << (*s)[i].ei;
-		ostr << std::endl;
-	    } while ( (s = s->automorph_list));
-	}
-	break;
+        BOOST_FOREACH(const SBG* s, sog)
+        {
+            do
+            {
+                for (int i = 0; i < NUM_EDGES; ++i)
+                    ostr << " (" << (*s)[i]->vi_from << "," << (*s)[i]->vi_to << ")" << (*s)[i]->ei;
+                ostr << std::endl;
+            } while ( (s = s->automorph_list));
+        }
+        break;
 
     default:
-	break;
+        break;
     }
 }
+
+
 
 // *****************************************************************************
 //                          main
@@ -329,13 +343,9 @@ int main(int argc, char** argv)
     // ------------------------------------------
     // prepare input (transactional) graphs
     // ------------------------------------------
-    Policy pl;
-    boost::ptr_vector<GraphPolicy::graph_t> gr_trans;
+    boost::ptr_vector<Policy::graph_t> gr_trans;
 
     {
-#ifdef DEBUG_CHECK_GRAPH_LABEL
-	unsigned int skipped = 0;
-#endif
 	while (true)
 	{
 	    std::string tr_name;
@@ -343,36 +353,28 @@ int main(int argc, char** argv)
 	    contruct_dfsc(dfsc, tr_name, std::cin);
 	    if (dfsc.empty())
 		break;
-#ifdef DEBUG_CHECK_GRAPH_LABEL
-	    try
-#endif
 	    {
-		Policy::graph_t* graph = pl.create_graph(dfsc);
+		Policy::graph_t* graph = Policy::create_graph(dfsc);
 		gr_trans.push_back(graph);
 		tr_names[graph] = tr_name;
-
+		
 #ifdef DEBUG_PRINT
-		    std::cerr << "INFO:    Graph " << tr_name << " was created"
-			      << " at address " << graph << std::endl;
+		std::cerr << "INFO:    Graph " << tr_name << " was created"
+			  << " at address " << graph << std::endl;
 #endif
 	    }
-#ifdef DEBUG_CHECK_GRAPH_LABEL
-	    catch (Policy::VertexNotLabeledException e)
-	    {
-		++skipped;
-		std::cerr << "WARNING: Graph " << tr_name << " not created, vertex "
-			  << e.vertex_index << " not labeled" << std::endl;
-	    }
-#endif
 	}
     }
 
     inline_view = pattern_view_mode == PV_EDGE && mapping_view_mode == MV_NONE;
 
-    Result result(std::cout, pl);
+    Result result(std::cout);
 
     if (gr_trans.size() == 1)
-	gSpan::GSPAN_FUNCTION(gr_trans.back(), minsup, pl, result);
+	gSpan::GSPAN_FUNCTION<Policy>(gr_trans.back(), minsup, result);
     else
-	gSpan::GSPAN_FUNCTION(gr_trans.begin(), gr_trans.end(), minsup, pl, result);
+	gSpan::GSPAN_FUNCTION<Policy>(gr_trans.begin(), gr_trans.end(), minsup, result);
+
+    std::cerr << "total_call=" << total_call << " cache_hit" << cache_hit
+	      << " cache_hit%% = " << (cache_hit/total_call)*100.0 << std::endl;
 }
