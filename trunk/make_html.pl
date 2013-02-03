@@ -122,7 +122,7 @@ process_file $tr_filename, "graph_";
 # --------------------------------
 # run closegraph $minsupport < $tr_filename > pattern_file
 # --------------------------------
-system("cat $tr_filename | ./closegraph $minsupport -m > /tmp/patterns.lg");
+system("cat $tr_filename | ./closegraph $minsupport > /tmp/patterns.lg");
 
 # --------------------------------
 # process pattern_file

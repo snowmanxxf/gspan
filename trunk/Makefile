@@ -1,11 +1,11 @@
-HEADERS := graph_policy.hpp gspan.hpp edge_iterator.hpp
+HEADERS := graph_bgl_policy.hpp gspan.hpp 
 SOURCES := main.cpp
 
-CFLAGS := -O3 -p -g -Wall
-CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL
+CFLAGS := -p -O3 -g -Wall
+CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL -DNDEBUG
 #CFLAGS += -DDEBUG_PRINT
 
-all: gspan closegraph
+all: closegraph
 
 gspan: ${SOURCES} ${HEADERS}
 	g++ -DGSPAN_FUNCTION=gspan      ${CFLAGS} ${SOURCES} -o gspan
