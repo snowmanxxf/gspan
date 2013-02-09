@@ -1,9 +1,9 @@
 HEADERS := graph_bgl_policy.hpp gspan.hpp 
 SOURCES := main.cpp
 
-CFLAGS := -p -O3 -g -Wall
-CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL -DNDEBUG
-#CFLAGS += -DDEBUG_PRINT
+CFLAGS := -p -O0 -g -Wall
+CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL #-DNDEBUG
+CFLAGS += -DDEBUG_PRINT
 
 all: closegraph
 
