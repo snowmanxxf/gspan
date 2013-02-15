@@ -1,14 +1,28 @@
 
-#include "graph_bgl_policy.hpp"
-#include "gspan.hpp"
+#if defined(CLOSEGRAPH_ST)
+#include "closegraph_st.hpp"
+#define GSPAN_FUNCTION closegraph_st
+
+#elif defined(CLOSEGRAPH_MT)
+#include "closegraph_mt.hpp"
+#define GSPAN_FUNCTION closegraph_mt
+
+#else
+#error gspan not yet implemented
+#endif
+
+#if defined(GRAPH_ADJL)
+#include "graph_bgl_adjl_policy.hpp"
+#else
+#include "graph_bgl_csr_policy.hpp"
+#endif
 
 #include <iostream>
 #include <iomanip>
 #include <cstring>
 #include <boost/ptr_container/ptr_vector.hpp>
 
-double total_call;
-double cache_hit;
+unsigned long proj_calls;
 
 using namespace bgl_adaptor;
 
@@ -374,7 +388,4 @@ int main(int argc, char** argv)
 	gSpan::GSPAN_FUNCTION<Policy>(gr_trans.back(), minsup, result);
     else
 	gSpan::GSPAN_FUNCTION<Policy>(gr_trans.begin(), gr_trans.end(), minsup, result);
-
-    std::cerr << "total_call=" << total_call << " cache_hit" << cache_hit
-	      << " cache_hit%% = " << (cache_hit/total_call)*100.0 << std::endl;
 }

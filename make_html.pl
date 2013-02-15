@@ -6,6 +6,8 @@ use warnings;
 my $html_image_dir = "images";
 my $html_file = "frequent_graphs.html";
 
+my $CLOSEGRAPH_CMD="closegraph_st";
+
 sub process_file
 {
     my $img_prefix = $_[1];
@@ -122,7 +124,7 @@ process_file $tr_filename, "graph_";
 # --------------------------------
 # run closegraph $minsupport < $tr_filename > pattern_file
 # --------------------------------
-system("cat $tr_filename | ./closegraph $minsupport > /tmp/patterns.lg");
+system("cat $tr_filename | ./$CLOSEGRAPH_CMD $minsupport > /tmp/patterns.lg");
 
 # --------------------------------
 # process pattern_file
