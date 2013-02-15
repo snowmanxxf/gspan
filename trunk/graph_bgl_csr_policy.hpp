@@ -1,5 +1,5 @@
-#ifndef GRAPH_BGL_POLICY_H_
-#define GRAPH_BGL_POLICY_H_
+#ifndef GRAPH_BGL_CSR_POLICY_H_
+#define GRAPH_BGL_CSR_POLICY_H_
 // it is NOT a part 'gspan' library
 
 #include <string>
@@ -11,9 +11,6 @@
 #ifndef BR
 #define BR asm volatile ("int3;")
 #endif
-
-extern double total_call;
-extern double cache_hit;
 
 namespace bgl_adaptor
 {
@@ -55,11 +52,8 @@ namespace bgl_adaptor
 
 	    edge_descriptor edge_descr(edge_index_t ei) const
 		{
-		    total_call += 1.0;
 		    if (!ed_cache_[ei].first)
 			ed_cache_[ei] = std::pair<bool, edge_descriptor>(true, edge_from_index(ei, *this));
-		    else
-			cache_hit += 1.0;
 		    return ed_cache_[ei].second;
 		}
 	private:
