@@ -1,9 +1,9 @@
 HEADERS := graph_bgl_csr_policy.hpp graph_bgl_adjl_policy.hpp gspan.hpp
 SOURCES := main.cpp
 
-CFLAGS := -O3 -g -p -Wall
+CFLAGS := -O3 -g -Wall
 CFLAGS += -DGRAPH_ADJL
-CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL #-DNDEBUG
+CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL -DGSPAN_WITH_STATISTICS #-DNDEBUG
 #CFLAGS += -DDEBUG_PRINT
 
 all: closegraph_st closegraph_mt
