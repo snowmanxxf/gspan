@@ -35,6 +35,38 @@ namespace gSpan
 	    std::vector<bool> early_termin_;
 	    int call_depth_;
 
+#ifdef GSPAN_WITH_STATISTICS
+	    unsigned long num_project_calls_;
+	    float num_ismin_calls_;
+	    float num_ismin_true_ret_;
+	    void statistics_init()
+		{
+		    num_project_calls_ = 0;
+		    num_ismin_calls_ = num_ismin_true_ret_ = 0.0f;
+		}
+
+	    bool is_min(const DFSCode<Policy>& dfsc)
+		{
+		    bool ret = detail::is_min(dfsc);
+		    num_ismin_calls_ += 1;
+		    if (ret)
+			num_ismin_true_ret_ += 1;
+		    return ret;
+		}
+
+	    void statistics_report()
+		{
+		    float ismin_true_ret_prc = num_ismin_true_ret_;
+		    ismin_true_ret_prc /= num_ismin_calls_;
+		    std::cerr << "------- statistics -----------------------";
+		    std::cerr << "\nnum_project_calls=" << num_project_calls_
+			      << "\nnum_ismin_calls=" << num_ismin_calls_
+			      << "\nismin_true_ret%=" << ismin_true_ret_prc*100.0f
+			      << std::endl;
+		    std::cerr << "------------------------------------------" << std::endl;
+		}
+#endif
+
 	    void run(RootMap& root, std::map<VL, int>& vlc);
 	    void find_xedges_vito(const XEdges& x_edges, VI vi, VLR vl, ELR el, std::set<VI>& vii) const;
 	    void fail_et(const EdgeCode<Policy>& ec, bool rightmost,
@@ -48,6 +80,13 @@ namespace gSpan
 			   Output& result);
 	
 	    Closegraph_alg(const Graph& graph, int minsup, Output& result);
+
+	    ~Closegraph_alg()
+		{
+#ifdef GSPAN_WITH_STATISTICS
+		    statistics_report();
+#endif
+		}
 	};
 
 
@@ -69,14 +108,13 @@ namespace gSpan
 			{
 			    EdgeCode<Policy> ec(0, 1, i1->first, i2->first, i3->first);
 #ifdef DEBUG_PRINT
-			    std::cerr << "FIRST EC:" << ec << " support=" << projected.size() << " "
+			    std::cerr << "FIRST EC:" << ec << " support=" << projected.support() << " "
+				      << " size=" << projected.size() << " "
 				      << "vlc[ec.vl_from]=" << vlc[ec.vl_from] << " "
 				      << "vlc[ec.vl_to]=" << vlc[ec.vl_to] << std::endl;
 #endif
 			    if (projected.size() == vlc[ec.vl_from])
 				et1v[ec.vl_from] = true;
-			    if (projected.size() == vlc[ec.vl_to])
-				et1v[ec.vl_to] = true;
 
 			    dfsc_.push_back(ec);
 			    project(&projected, 0);
@@ -170,9 +208,18 @@ namespace gSpan
 	    using namespace detail;
 	    ++call_depth_;
 
-	    if ((++proj_calls % 10000UL) == 0)
-		std::cerr << "proj_calls=" << proj_calls << std::endl;
-//#ifdef DEBUG_PRINT
+#ifdef GSPAN_WITH_STATISTICS
+	    ++num_project_calls_;
+#endif
+
+#ifdef DEBUG_PRINT
+	    static int ncall;
+	    ++ncall;
+
+	    std::cerr << ">--- project: NCALL=" << ncall << " depth=" << call_depth_ << "   "<< dfsc_ << std::endl
+		      << "     projected.support=" << projected->support() << " size=" << projected->size()
+		      << std::endl << *projected << std::endl;;
+/*
 	    if (call_depth_ < 3)
 	    {
 		std::cerr << call_depth_ << ":";
@@ -180,7 +227,8 @@ namespace gSpan
 		    std::cerr << " ";
 		std::cerr << dfsc_.back() << std::endl;
 	    }
-//#endif
+*/
+#endif
 
 	    early_termin_.push_back(false);
 
@@ -367,7 +415,7 @@ namespace gSpan
 				r_closed = false; // projected is not closed
 			    
 			    // detect early termination
-			    if (new_prj.size() == projected->size())
+			    if (new_prj.size() == projected->size() && new_prj.support() == projected->support())
 				early_termin_.back() = true;
 
 			    project(&new_prj, projected);
@@ -400,7 +448,7 @@ namespace gSpan
 				    r_closed = false; // projected is not closed
 
 				// detect early termination
-				if (new_prj.size() == projected->size())
+				if (new_prj.size() == projected->size() && new_prj_supp == projected->support())
 				    early_termin_.back() = true;
 				
 				project(&new_prj, projected);
@@ -450,6 +498,10 @@ namespace gSpan
 	    early_termin_.pop_back();
 
 	    --call_depth_;
+
+#ifdef DEBUG_PRINT
+	    std::cerr << "RET to " << call_depth_ << std::endl;;
+#endif
 	}
 
 	template<class Policy, class Output, class P>
@@ -460,6 +512,9 @@ namespace gSpan
 							Output& result)
 	    :minsup_(minsup), result_(result), call_depth_(0)
 	{
+#ifdef GSPAN_WITH_STATISTICS
+		    statistics_init();
+#endif
 	    using namespace detail;
 	    std::map<VL, int> vlc;
 	    RootMap root;
@@ -478,6 +533,9 @@ namespace gSpan
 							Output& result)
 	    :minsup_(minsup), result_(result), call_depth_(0)
 	{
+#ifdef GSPAN_WITH_STATISTICS
+		    statistics_init();
+#endif
 	    using namespace detail;
 	    std::map<VL, int> vlc;
 	    RootMap root;

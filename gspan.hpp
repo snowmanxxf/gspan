@@ -112,6 +112,8 @@ namespace gSpan
     // *****************************************************************************
     //                          SBG
     // *****************************************************************************
+    enum SBGMatch { DIFFERENT, PARTIAL, ISOMORPH };
+
     template<class Policy>
     class SBG
     {
@@ -122,16 +124,22 @@ namespace gSpan
 	typedef typename Policy::edge_index_t   EI;
 
 	SBG(const G* g, const Edge& e)
-	    :prev_(0), edge_(e), rec_(0), graph_(g), depth_(1) { automorph_list = 0; }
+	    :prev_(0), edge_(e), rec_(0), graph_(g), depth_(1)
+	    {
+		automorph_list = overlapped_list = 0;
+	    }
 
 	SBG(const SBG* s, const Edge& e)
 	    :prev_(s), edge_(e), rec_(0), graph_(s->graph_), depth_(s->depth_+1)
-	    { automorph_list = 0; }
+	    {
+		automorph_list = overlapped_list = 0;
+	    }
 
 	SBG(const SBG& s)
 	    :prev_(s.prev_), edge_(s.edge_), rec_(0), graph_(s.graph_), depth_(s.depth_)
 	    {
 		automorph_list = s.automorph_list;
+		overlapped_list = s.overlapped_list;
 	    }
 
 	~SBG()
@@ -146,8 +154,9 @@ namespace gSpan
 	const Edge& edge() const { return edge_; }
 	const SBG* prev_sbg() const { return prev_; }
 	SBG* automorph_list;
+	SBG* overlapped_list;
 
-	static int num_common_edges(const SBG<Policy>& sbg1, const SBG<Policy>& sbg2);
+	static SBGMatch sbg_cmp(const SBG<Policy>& sbg1, const SBG<Policy>& sbg2);
     private:
 	const SBG* prev_;
 	Edge edge_;
@@ -211,20 +220,45 @@ namespace gSpan
     }
  
     template<class Policy>
-    int SBG<Policy>::num_common_edges(const SBG<Policy>& sbg1, const SBG<Policy>& sbg2)
+    SBGMatch SBG<Policy>::sbg_cmp(const SBG<Policy>& sbg1, const SBG<Policy>& sbg2)
     {
 	sbg1.init_rec();
 	sbg2.init_rec();
-	const std::vector<char>& ee1 = sbg1.rec_->ee_;
-	const std::vector<char>& ee2 = sbg2.rec_->ee_;
-	int nce = 0;
-	int num = ee1.size();
+
+	{
+	    const std::vector<char>& ee1 = sbg1.rec_->ee_;
+	    const std::vector<char>& ee2 = sbg2.rec_->ee_;
+	    int nce = 0;
+	    int num = ee1.size();
+	    for (int i = 0; i < num; ++i)
+	    {
+		bool b1 = ee1[i];
+		bool b2 = ee2[i];
+		if (b1 != b2)
+		    break;
+		if (b1)
+		    ++nce;
+	    }
+	    if (nce > 0)
+	    {
+		if (nce == num)
+		    return ISOMORPH;
+		return PARTIAL;
+	    }
+	}
+
+	const std::vector<short>& vv1 = sbg1.rec_->vv_;
+	const std::vector<short>& vv2 = sbg2.rec_->vv_;
+	assert(vv1.size() == vv2.size());
+	
+	int num = vv1.size();
 	for (int i = 0; i < num; ++i)
 	{
-	    if (ee1[i] && ee2[i])
-		++nce;
+	    if (vv1[i] && vv2[i])
+		return PARTIAL;
 	}
-	return nce;
+	
+	return DIFFERENT;
     }
 
     // *****************************************************************************
@@ -240,14 +274,13 @@ namespace gSpan
     {	
 	typedef std::vector<SBG<Policy>* > SBGS_PTR;
 	SBGS_PTR sbgs_ptr_;
-	int count_non_overlapped_;
 	int num_sbgs_;
     public:
-	SubgraphsOfOneGraph() :count_non_overlapped_(0), num_sbgs_(0) {}
+	SubgraphsOfOneGraph() :num_sbgs_(0) {}
 	typedef typename SBGS_PTR::const_iterator const_iterator;
 	const_iterator begin() const { return sbgs_ptr_.begin(); }
 	const_iterator end()   const { return sbgs_ptr_.end(); }
-	int support() const	{ return count_non_overlapped_; }
+	int support() const	{ return sbgs_ptr_.size(); }
 	int num_sbgs() const	{ return num_sbgs_; }
 	void push(SBG<Policy>* s);
 	void merge(SubgraphsOfOneGraph& sog);
@@ -257,13 +290,10 @@ namespace gSpan
     void SubgraphsOfOneGraph<Policy>::push(SBG<Policy>* s)
     {
 	++num_sbgs_;
-	const int ne = s->size();
-
-	int count = 1;
 	BOOST_FOREACH(SBG<Policy>* sbg, sbgs_ptr_)
 	{
-	    int nce = SBG<Policy>::num_common_edges(*s, *sbg);
-	    if (nce == ne)
+	    SBGMatch m = SBG<Policy>::sbg_cmp(*s, *sbg);
+	    if (m == ISOMORPH)
 	    {
 		assert(s->automorph_list == 0);
 		s->automorph_list = sbg->automorph_list;
@@ -271,12 +301,16 @@ namespace gSpan
 		return;
 	    }
 
-	    if (nce == 0)
-		++count;
+	    if (m == PARTIAL)
+	    {
+		assert(s->overlapped_list == 0);
+		s->overlapped_list = sbg->overlapped_list;
+		sbg->overlapped_list = s;
+		return;
+	    }
 	}
 	
 	sbgs_ptr_.push_back(s);
-	count_non_overlapped_ = count;
     }
 
     template<class Policy>
@@ -286,7 +320,6 @@ namespace gSpan
 	for (typename SBGS_PTR::const_iterator i = sog.sbgs_ptr_.begin(); i != iend; ++i)
 	    push(*i);
 	sog.sbgs_ptr_.clear();
-	sog.count_non_overlapped_ = 0;
     }
 
 
