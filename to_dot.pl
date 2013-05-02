@@ -9,6 +9,9 @@ my $graph_id;
 my $graph_kind;
 my $edgeop;
 
+my $lab_inner_circle = "^1";
+my @inner_circle_nodes;
+
 if (scalar(@ARGV) > 0 && $ARGV[0] =~ "-dir")
 {
     $directed = 1;
@@ -39,6 +42,11 @@ while (defined($line = <STDIN>))
 	elsif ($values[0] =~ "^v.*")
 	{
 	    print "\t" . $values[1] . " [label=\"" . $values[2] . "\"]\n";
+
+	    if ($values[2] =~ $lab_inner_circle)
+	    {
+		push(@inner_circle_nodes, $values[1]);
+	    }
 	}
 	elsif ($values[0] =~ "^e.*")
 	{
@@ -58,6 +66,14 @@ while (defined($line = <STDIN>))
     }
 }
 
+if (scalar(@inner_circle_nodes) > 0) {
+    print "\t" . -1 . " [label=nil,style=invis]\n";
+    print "\t graph [root=-1]\n";
+    print "\t ranksep=3\n";
+    foreach my $v (@inner_circle_nodes) {
+	print -1 . " -- " . $v . " [style=invis] \n";
+    }
+}
 
-print "};\n" if ($num_graphs > 0);
+print "}\n" if ($num_graphs > 0);
 

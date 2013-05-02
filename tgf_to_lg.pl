@@ -18,7 +18,14 @@ while (defined($line = <STDIN>))
 	}
 	else
 	{
-	    print $prefix . $values[0] . " " . $values[1]. "\n";
+	    if ($prefix =~ 'e')
+	    {
+		print $prefix . ($values[0]-1) . " " . ($values[1]-1) . "\n";
+	    }
+	    else
+	    {
+		print $prefix . ($values[0]-1) . " " . $values[1] . "\n";
+	    }
 	}
     }
 }
