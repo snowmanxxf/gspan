@@ -1,21 +1,19 @@
 HEADERS := graph_bgl_csr_policy.hpp graph_bgl_adjl_policy.hpp gspan.hpp
 SOURCES := main.cpp
 
-CFLAGS := -O3 -g -Wall
+CFLAGS := -O3 -g -Wall -march=amdfam10
 CFLAGS += -DGRAPH_ADJL
-CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL -DGSPAN_WITH_STATISTICS #-DNDEBUG
-#CFLAGS += -DDEBUG_PRINT
+CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL 
+CFLAGS += -DGSPAN_WITH_STATISTICS
+CFLAGS += -DGSPAN_TRACE
+#CFLAGS += -DCHECK_MODE
+CFLAGS += -DDEBUG_PRINT
+#CFLAGS += -DNDEBUG
 
-all: closegraph_st closegraph_mt
+closegraph: main2.cpp gspan2.hpp gspan2.cpp misc.hpp read_input.cpp gspan_graph.hpp
+	g++ ${CFLAGS} -DGSPAN_FUNCTION=closegraph main2.cpp gspan2.cpp read_input.cpp -o closegraph
 
-closegraph_st: ${SOURCES} ${HEADERS} closegraph_st.hpp
-	g++ -DCLOSEGRAPH_ST ${CFLAGS} ${SOURCES} -o closegraph_st
-
-closegraph_mt: ${SOURCES} ${HEADERS}  closegraph_mt.hpp
-	g++ -DCLOSEGRAPH_MT -lboost_thread ${CFLAGS} ${SOURCES} -o closegraph_mt
-
-#gspan: ${SOURCES} ${HEADERS}
-#	g++ ${CFLAGS} ${SOURCES} -o gspan
 
 clean:
 	rm -f *.o *.ii *.s gspan closegraph_mt closegraph_st
+
