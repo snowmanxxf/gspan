@@ -10,10 +10,8 @@ CFLAGS += -DGSPAN_TRACE
 CFLAGS += -DDEBUG_PRINT
 #CFLAGS += -DNDEBUG
 
-closegraph: main2.cpp gspan2.hpp gspan2.cpp misc.hpp read_input.cpp gspan_graph.hpp
-	g++ ${CFLAGS} -DGSPAN_FUNCTION=closegraph main2.cpp gspan2.cpp read_input.cpp -o closegraph
-
+closegraph: main.cpp gspan.hpp gspan.cpp misc.hpp read_input.cpp gspan_graph.hpp
+	g++ ${CFLAGS} -DGSPAN_FUNCTION=closegraph main.cpp gspan.cpp read_input.cpp -o closegraph
 
 clean:
-	rm -f *.o *.ii *.s gspan closegraph_mt closegraph_st
-
+	rm -f *.o *.ii *.s closegraph
