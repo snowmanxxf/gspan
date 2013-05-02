@@ -1,4 +1,4 @@
-#include "gspan2.hpp"
+#include "gspan.hpp"
 
 #include <boost/foreach.hpp>
 
@@ -9,8 +9,6 @@
 #include <map>
 #include <queue>
 #include <algorithm>
-
-int nnncc = 0;
 
 namespace gSpan2
 {

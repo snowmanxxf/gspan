@@ -1,7 +1,7 @@
 #ifndef MISC_H_
 #define MISC_H_
 
-#include "gspan2.hpp"
+#include "gspan.hpp"
 #include <vector>
 #include <map>
 #include <boost/foreach.hpp>
