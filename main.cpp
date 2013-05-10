@@ -1,5 +1,5 @@
 #include "misc.hpp"
-
+#include <fstream>
 enum PatternViewMode { PV_LG, PV_DFSC, PV_EDGE} pattern_view_mode;
 enum MappingViewMode { MV_NONE, MV_TABLE, MV_MAP } mapping_view_mode;
 bool inline_view;
@@ -73,7 +73,7 @@ void Result::operator() (const DFSCode& dfsc, const SubgraphsOfManyGraph& smg)
 
 void Result::print_pattern(const DFSCode& dfsc) const
 {
-    std::map<VI,std::string> vlm;
+    std::map<DfscVI,std::string> vlm;
     BOOST_FOREACH(const EdgeCode& ec, dfsc)
     {
 	if (ec.vl_src() != VL_NULL) vlm[ec.vi_src()] = vlabs[ec.vl_src()];
@@ -84,7 +84,7 @@ void Result::print_pattern(const DFSCode& dfsc) const
     {
     case PV_LG:
 	ostr << "t # " << num_patterns << std::endl;
-	for (typename std::map<VI,std::string>::const_iterator i = vlm.begin(); i != vlm.end(); ++i)
+	for (typename std::map<DfscVI,std::string>::const_iterator i = vlm.begin(); i != vlm.end(); ++i)
 	    ostr << "v " << i->first << " " << i->second << std::endl;
 	BOOST_FOREACH(const EdgeCode& ec, dfsc)
 	    ostr << "e " << ec.vi_src() << " " << ec.vi_dst() << " " << elabs[ec.el()] << std::endl;
@@ -169,23 +169,26 @@ void Result::print_mapping(const DFSCode& dfsc, const SubgraphsOfOneGraph& sog) 
 	    const SBG* const S_END = s;
             do
             {
-                std::map<VI, VI> vvm;
+		std::vector<const SBG*> chain;
+		get_chain(chain, s);
+
+                std::map<DfscVI, GraphVI> vvm;
                 for (int i = 0; i < NUM_EDGES; ++i)
                 {
                     const EdgeCode& ec = dfsc[i];
-                    vvm[ec.vi_src()] = (*s)[i]->vi_src();
-                    vvm[ec.vi_dst()] = (*s)[i]->vi_dst();
+                    vvm[ec.vi_src()] = chain[i]->edge().vi_src();
+                    vvm[ec.vi_dst()] = chain[i]->edge().vi_dst();
                 }
                 ostr << "#mv: ";
-                for (std::map<VI, VI>::const_iterator i = vvm.begin(); i != vvm.end(); ++i)
+                for (std::map<DfscVI, GraphVI>::const_iterator i = vvm.begin(); i != vvm.end(); ++i)
                     ostr << i->first << "->" << i->second << " ";
                 ostr << std::endl;
                 ostr << "#me: ";
                 for (int i = 0; i < NUM_EDGES; ++i)
-                    ostr << i << "->" << (*s)[i]->eid() << " ";
+                    ostr << i << "->" << chain[i]->edge().eid() << " ";
                 ostr << std::endl;
 
-		s = s->automorph_next;
+		s = s->next_automorph();
             } while (s != S_END);
         }
         break;
@@ -196,10 +199,14 @@ void Result::print_mapping(const DFSCode& dfsc, const SubgraphsOfOneGraph& sog) 
 	    const SBG* const S_END = s;
             do
             {
+		std::vector<const SBG*> chain;
+		get_chain(chain, s);
+
                 for (int i = 0; i < NUM_EDGES; ++i)
-                    ostr << " (" << (*s)[i]->vi_src() << "," << (*s)[i]->vi_dst() << ")" << (*s)[i]->eid();
+                    ostr << " (" << chain[i]->edge().vi_src() << "," << chain[i]->edge().vi_dst() << ")"
+			 << chain[i]->edge().eid();
                 ostr << std::endl;
-		s = s->automorph_next;
+		s = s->next_automorph();
             } while (s != S_END);
         }
         break;
@@ -213,7 +220,7 @@ void Result::print_mapping(const DFSCode& dfsc, const SubgraphsOfOneGraph& sog) 
 std::ostream& usage(std::ostream& ostr)
 { 
     return ostr << "Usage: CMD <minsup> [{-dfsc -edge}] [{ -m -mt }] "
-		<< "[-asc] [-vlfile=FILE] [-elfile=FILE] [-trace N]" << std::endl << std::endl;
+		<< "[-asc] [-vlfile=FILE] [-elfile=FILE] [-trace N] [-if=file]" << std::endl << std::endl;
 }
 
 
@@ -280,14 +287,37 @@ int main(int argc, char** argv)
 	    tracedepth = atoi(argv[i]+7);
 	    break;
 	}
-   
+
+
+    const char* inputfile = 0;
+    for (int i = 0; i < argc; ++i)
+	if (! strncmp(argv[i], "-if=", 4))
+	{
+	    inputfile = argv[i]+4;
+	    break;
+	}
+
+
     inline_view = pattern_view_mode == PV_EDGE && mapping_view_mode == MV_NONE;    
 
     // ------------------------------------------
     // prepare input (transactional) graphs
     // ------------------------------------------
     std::list<InputGraph> input_graphs;
-    read_input(input_graphs, std::cin);
+    if (inputfile)
+    {
+	std::ifstream ifile;
+	ifile.open(inputfile);
+	if (ifile.is_open())
+	    read_input(input_graphs, ifile);
+	else
+	{
+	    std::cerr << "ERROR: can not open file: " << inputfile << std::endl;
+	    return 1;
+	}
+    }
+    else
+	read_input(input_graphs, std::cin);
 
     // ------------------------------------------
     // relabel
@@ -352,8 +382,11 @@ int main(int argc, char** argv)
     Result result(std::cout, wrk_graphs, vlabs, elabs);
     minsup=minsup;
     if (wrk_graphs.graphs.size() == 1)
-	GSPAN_FUNCTION(*wrk_graphs.graphs.back(), minsup, &result, tracedepth);
+	closegraph(*wrk_graphs.graphs.back(), minsup, &result, tracedepth);
     else
-	GSPAN_FUNCTION(wrk_graphs.graphs, minsup, &result, tracedepth);
+	closegraph(wrk_graphs.graphs, minsup, &result, tracedepth);
 
+    extern unsigned int nctor;
+    extern unsigned int ndtor;
+    std::cerr << "" <<nctor << " " << ndtor <<std::endl;
 }

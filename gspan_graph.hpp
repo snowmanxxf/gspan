@@ -1,6 +1,8 @@
 #ifndef GSPAN_GRAPH_H_
 #define GSPAN_GRAPH_H_
 
+#include "gspan_allocator.hpp"
+
 #include <vector>
 #include <limits>
 #include <iterator>		// std::distance()
@@ -8,27 +10,63 @@
 
 namespace gSpan2
 {
-    typedef unsigned int VI;
-    typedef unsigned int EI;
-    typedef int VL;
-    typedef int EL;
 
-    const VI VI_NULL = std::numeric_limits<VI>::max();
-    const EI EI_NULL = std::numeric_limits<EI>::max();
+    namespace detail
+    {
+	typedef unsigned short VI;
+	typedef unsigned short EI;
+    }
+
+    typedef short VL;
+    typedef short EL;
+
+    const detail::VI VI_NULL = std::numeric_limits<detail::VI>::max();
+    const detail::EI EI_NULL = std::numeric_limits<detail::EI>::max();
     const VL VL_NULL = -1;
     const EL EL_NULL = -1;
 
-    class Graph
+#ifdef TYPE_CHECK
+    template<class T, int TypeID>
+    class Value
+    {
+	T x_;
+    public:
+	Value() :x_() {}
+	Value(const T x) :x_(x) {}
+	operator T() const { return x_; }
+
+	const T operator= (const T& x) { x_ = x; return x_; }
+	const T operator++ () { return ++x_; }
+	const T operator++ (int) { return x_++; }
+	const T operator-- () { return --x_; }
+	const T operator-- (int) { return x_--; }
+    };
+
+    typedef Value<detail::VI, 1>	GraphVI;
+    typedef Value<detail::EI, 2>	GraphEI;
+    typedef Value<detail::VI, 3>	DfscVI;
+    typedef Value<detail::EI, 4>	DfscEI;
+#else
+    typedef detail::VI	GraphVI;
+    typedef detail::EI	GraphEI;
+    typedef detail::VI	DfscVI;
+    typedef detail::EI	DfscEI;
+#endif
+    
+    // *****************************************************************************
+    //                          GraphSimple
+    // *****************************************************************************
+    class GraphSimple
     {
     public:
 	template<class EdgeCodeIterator>
-	Graph(EdgeCodeIterator it, const EdgeCodeIterator it_end, int num_vertices);
+	GraphSimple(EdgeCodeIterator it, const EdgeCodeIterator it_end, int num_vertices);
 	
 	class Edge
 	{
-	    EI eid_;
-	    VI vi_src_;
-	    VI vi_dst_;
+	    GraphEI eid_;
+	    GraphVI vi_src_;
+	    GraphVI vi_dst_;
 	    VL vl_src_;
 	    VL vl_dst_;
 	    EL el_;
@@ -42,7 +80,7 @@ namespace gSpan2
 		 el_(EL_NULL)
 		{}
 
-	    Edge(EI eid, VI src, VI dst, VL srclab, VL dstlab, EL elab)
+	    Edge(GraphEI eid, GraphVI src, GraphVI dst, VL srclab, VL dstlab, EL elab)
 		:eid_(eid),
 		 vi_src_(src),
 		 vi_dst_(dst),
@@ -51,11 +89,11 @@ namespace gSpan2
 		 el_(elab)
 		{}
 
-	    VI vi_src() const	{ return vi_src_; }
-	    VI vi_dst() const	{ return vi_dst_; }
+	    GraphVI vi_src() const	{ return vi_src_; }
+	    GraphVI vi_dst() const	{ return vi_dst_; }
 	    VL vl_src() const	{ return vl_src_; }
 	    VL vl_dst() const	{ return vl_dst_; }
-	    EI eid() const	{ return eid_; }
+	    GraphEI eid() const	{ return eid_; }
 	    EL el() const	{ return el_; }
 	    
 	    void chgdir()
@@ -65,42 +103,48 @@ namespace gSpan2
 		}
 
 	    Edge operator- () const { Edge e(*this); e.chgdir(); return e; }
+
 	};
 
 	typedef std::vector<const Edge*> IncidentEdges;
 	typedef IncidentEdges::const_iterator IncidentEdgesIterator;
-	const IncidentEdges& incident(VI vi) const	{ return vertices_[vi]; }
+	const IncidentEdges& incident(GraphVI vi) const	{ return vertices_[vi]; }
 
 	typedef std::vector<Edge> Edges;
 	typedef Edges::const_iterator EdgesIterator;
 	const Edges& edges() const			{ return edges_; }
 
-	int num_vertices() const			{ return vertices_.size(); }
-	int num_edges() const				{ return num_edges_; }
+	std::size_t num_vertices() const			{ return num_vertices_; }
+	std::size_t num_edges() const				{ return num_edges_; }
     private:
 	std::vector<IncidentEdges> vertices_;
-	unsigned int num_edges_;
-	Edges edges_;
+	std::size_t num_vertices_;
+	std::size_t num_edges_;
+	Edges edges_;	
     };
 
 
     template<class EdgeCodeIterator>
-    Graph::Graph(EdgeCodeIterator it, const EdgeCodeIterator it_end, int num_vertices)
+    GraphSimple::GraphSimple(EdgeCodeIterator it, const EdgeCodeIterator it_end, int num_vertices)
 	:vertices_(num_vertices),
+	 num_vertices_(num_vertices),
 	 num_edges_(std::distance(it, it_end)),
-	 edges_(num_edges_)
+	 edges_(num_edges_)	 
     {
 	edges_.resize(num_edges_ * 2U);
-	EI e_idx1 = 0;
-	EI e_idx2 = num_edges_;
+	GraphEI e_idx1 = 0;
+	GraphEI e_idx2 = num_edges_;
 	for (; it != it_end; ++it)
 	{
+	    GraphVI vi_src(it->vi_src());
+	    GraphVI vi_dst(it->vi_dst());
+
 	    edges_[e_idx1] = Edge(e_idx1,
-				  it->vi_src(), it->vi_dst(),
+				  vi_src, vi_dst,
 				  it->vl_src(), it->vl_dst(),
 				  it->el());
 	    edges_[e_idx2] = Edge(e_idx1,
-				  it->vi_dst(), it->vi_src(),
+				  vi_dst, vi_src,
 				  it->vl_dst(), it->vl_src(),
 				  it->el());
 	    
@@ -111,6 +155,25 @@ namespace gSpan2
 	    ++e_idx2;
 	}
     }
+
+
+    // *****************************************************************************
+    //                          Graph
+    // *****************************************************************************
+    class Graph : public GraphSimple
+    {
+    public:
+	template<class EdgeCodeIterator>
+	Graph(EdgeCodeIterator it, const EdgeCodeIterator it_end, int num_vertices);
+    };
+
+    template<class EdgeCodeIterator>
+    Graph::Graph(EdgeCodeIterator it, const EdgeCodeIterator it_end, int num_vertices)
+	:GraphSimple(it, it_end, num_vertices)
+    {
+    }
+
+
 
     inline std::ostream& operator<<(std::ostream& out, const Graph::Edge& e)
     {
