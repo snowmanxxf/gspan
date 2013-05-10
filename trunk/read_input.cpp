@@ -1,7 +1,9 @@
 
 #include "misc.hpp"
+
 #include <fstream>
 #include <numeric>
+#include <cassert>
 
 class MappedValueNotFound {};
 

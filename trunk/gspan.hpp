@@ -3,64 +3,100 @@
 
 #include <iostream>
 #include <vector>
-#include <boost/unordered_set.hpp>
+#include <set>
+#include <map>
+#include <cassert>
 
+#ifdef USE_ASM
+#include <stdint.h>
+#endif
+
+#include <boost/noncopyable.hpp>
+
+#include "gspan_allocator.hpp"
 #include "gspan_graph.hpp"
-#include <boost/graph/adjacency_list.hpp>
+
 
 #ifndef BR
 #define BR asm volatile ("int3;")
 #endif
 
-#include <cstring>
+
+extern unsigned int nctor;
+extern unsigned int ndtor;
 
 namespace gSpan2
 {
-
-    class EdgeCode_
-    {
-    public:
-	VI vi_src() const;
-	VI vi_dst() const;
-	VL vl_src() const;
-	VL vl_dst() const;
-	EL el() const;
-
-	bool is_fwd() const;
-	bool is_bck() const;
-	void chgdir();
-    };
 
     // *****************************************************************************
     //                          EdgeCode
     // *****************************************************************************
     class EdgeCode
     {
-	VI vi_src_, vi_dst_;
+	friend struct EdgeCodeCmpLex;
+#ifdef USE_ASM
+	// TODO: Compatibility check for DfscVI, VL and EL for uint16_t
+
+	enum { VI_SRC_I, VI_DST_I, VL_SRC_I, EL_I, VL_DST_I };
+
+	uint16_t x_[5];
+#else
+	DfscVI vi_src_, vi_dst_;
 	VL vl_src_, vl_dst_;
 	EL el_;
+#endif
 	bool is_fwd_;
     public:
+#ifdef USE_ASM
+	EdgeCode()
+	    :is_fwd_(false)
+	    {
+		x_[VI_SRC_I] = x_[VI_DST_I] = VI_NULL;
+		x_[VL_SRC_I] = x_[VL_DST_I] = VL_NULL;
+		x_[EL_I] = EL_NULL;
+	    }
+
+	EdgeCode(DfscVI vi_src, DfscVI vi_dst, VL vl_src, EL el, VL vl_dst, bool fwd)
+	    :is_fwd_(fwd)
+	    {
+		x_[VI_SRC_I] = vi_src; x_[VI_DST_I] = vi_dst;
+		x_[VL_SRC_I] = vl_src; x_[VL_DST_I] = vl_dst;
+		x_[EL_I] = el;
+	    }
+	
+	DfscVI vi_src() const	{ return x_[VI_SRC_I]; }
+	DfscVI vi_dst() const	{ return x_[VI_DST_I]; }
+	VL vl_src() const	{ return x_[VL_SRC_I]; }
+	VL vl_dst() const	{ return x_[VL_DST_I]; }
+	EL el() const		{ return x_[EL_I]; }
+
+	void chgdir()
+	    {
+		std::swap(x_[VI_SRC_I], x_[VI_DST_I]);
+		std::swap(x_[VL_SRC_I], x_[VL_DST_I]);
+	    }
+#else
 	EdgeCode()
 	    :vi_src_(VI_NULL), vi_dst_(VI_NULL),
 	     vl_src_(VL_NULL), vl_dst_(VL_NULL), el_(EL_NULL),
 	     is_fwd_(false)
 	    {}
 
-	EdgeCode(VI vi_from, VI vi_to, VL vl_from, EL el, VL vl_to, bool fwd)
+	EdgeCode(DfscVI vi_from, DfscVI vi_to, VL vl_from, EL el, VL vl_to, bool fwd)
 	    :vi_src_(vi_from), vi_dst_(vi_to),
 	     vl_src_(vl_from), vl_dst_(vl_to), el_(el),
 	     is_fwd_(fwd) {}
 
-	VI vi_src() const	{ return vi_src_; }
-	VI vi_dst() const	{ return vi_dst_; }
+	DfscVI vi_src() const	{ return vi_src_; }
+	DfscVI vi_dst() const	{ return vi_dst_; }
 	VL vl_src() const	{ return vl_src_; }
 	VL vl_dst() const	{ return vl_dst_; }
 	EL el() const		{ return el_; }
+	void chgdir() { std::swap(vi_src_, vi_dst_); std::swap(vl_src_, vl_dst_); }
+#endif
 
 	bool is_forward() const		{ return is_fwd_; }
 	bool is_backward() const	{ return !is_fwd_; }
-	void chgdir() { std::swap(vi_src_, vi_dst_); std::swap(vl_src_, vl_dst_); }
 	EdgeCode operator- () const { EdgeCode ec(*this); ec.chgdir(); return ec; }
 	bool operator!= (const EdgeCode& ec) const	{ return ! (*this == ec); }
 	bool operator== (const EdgeCode& ec) const;
@@ -68,12 +104,12 @@ namespace gSpan2
 
     struct EdgeCodeCmpDfs
     {
-	bool operator() (const EdgeCode& ec1, const EdgeCode& ec2) const;
+	bool operator() (const EdgeCode& ec1, const EdgeCode& ec2) const  __attribute__((noinline));
     };
 
     struct EdgeCodeCmpLex
     {
-	bool operator() (const EdgeCode& ec1, const EdgeCode& ec2) const;
+	bool operator() (const EdgeCode& ec1, const EdgeCode& ec2) const  __attribute__((noinline));
     };
 
 
@@ -84,213 +120,171 @@ namespace gSpan2
     // *****************************************************************************
     typedef std::vector<EdgeCode> DFSCode;
     
-    VI max_vertex(const DFSCode& dfsc);
+    DfscVI max_vertex(const DFSCode& dfsc);
     std::ostream& operator<<(std::ostream& out, const DFSCode& dfsc);
+
+    // *****************************************************************************
+    //                          SBGBase
+    // *****************************************************************************
+
+    struct EVBool
+    {
+	bool e_in_sbg : 1;
+	bool v_in_sbg : 1;
+	bool v_no_exts : 1;
+    };
+
+    inline std::size_t graph_size(const Graph* g)
+    { return std::max(g->num_vertices(), g->num_edges()); }
+
+
+    class SBG_Creator;
+
+    template<class SBG_Derived>
+    class SBGBase : private boost::noncopyable
+    {
+	friend class SBG_Creator;
+
+	Graph::Edge edge_;
+
+	// single linked list of the subgraph edges
+	const SBG_Derived* parent_;
+
+	unsigned short depth_;
+
+	EVBool* ev_array_;
+
+	const Graph* graph_;
+    protected:
+	SBGBase(const Graph::Edge& e, const Graph* g)
+	    :edge_(e), parent_(0), depth_(1), ev_array_(0), graph_(g) {}
+	
+	SBGBase(const Graph::Edge& e, const SBG_Derived* s)
+	    :edge_(e), parent_(s), depth_(s->depth_ + 1), ev_array_(0), graph_(s->graph_) {}
+    public:
+	const Graph::Edge& edge() const		{ return edge_; }
+	const Graph* get_graph() const		{ return graph_; }
+	const SBG_Derived* parent() const	{ return parent_; }
+	std::size_t num_edges() const		{ return depth_; }
+	unsigned short depth() const		{ return depth_; }
+
+	bool has_vertex(GraphVI v) const	{ return ev_array_[v].v_in_sbg; }
+	bool has_edge(GraphEI e) const		{ return ev_array_[e].e_in_sbg; }
+	
+	bool has_no_extension(GraphVI v)	{ return ev_array_[v].v_no_exts; }
+	void set_no_has_extension(GraphVI v)	{ ev_array_[v].v_no_exts = true; }
+	void set_has_extension(GraphVI v)	{ ev_array_[v].v_no_exts = false; }
+
+	const EVBool* ev_array() const		{ return ev_array_; }
+    };
+
+    template<class S>
+    const S* parent(const S* sbg, unsigned short depth)
+    {
+	const S* s = sbg;
+	do
+	{
+	    if (depth == s->depth())
+		return s;
+	    s = s->parent();
+	} while (s);
+	return 0;
+    }
+    
 
     // *****************************************************************************
     //                          SBGSimple
     // *****************************************************************************
-    class SBGSimple
+    class SBGSimple : public SBGBase<SBGSimple>
     {
-	const SBGSimple* prev_;
-	Graph::Edge edge_;
-	
-	// Embeddings
-	mutable std::vector<const Graph::Edge*>* e_;
-	mutable std::vector<short>* vv_;
-	mutable std::vector<char>* ee_;
+	friend class SBG_Creator;
 
-	int depth_;
-	SBGSimple& operator= (const SBGSimple& s);
+	Graph::Edge** edge_ptr_array_;
+
+	SBGSimple(const Graph::Edge& e, const Graph* g)
+	    :SBGBase<SBGSimple>(e, g),
+	     edge_ptr_array_(0)
+	    {}
+
+	SBGSimple(const Graph::Edge& e, const SBGSimple* s)
+	    :SBGBase<SBGSimple>(e, s),
+	     edge_ptr_array_(0)
+	    {}
     public:
-	
-	SBGSimple(const Graph::Edge& edge)
-	    :prev_(0),
-	     edge_(edge),
-	     e_(0),
-	     vv_(0),
-	     ee_(0),
-	     depth_(1)
-	    {
-	    }
-
-	SBGSimple(const SBGSimple* s, const Graph::Edge& e)
-	    :prev_(s),
-	     edge_(e),
-	     e_(0),
-	     vv_(0),
-	     ee_(0),
-	     depth_(s->depth_+1)
-	    {
-	    }
-
-	SBGSimple(const SBGSimple& s)
-	    :prev_(s.prev_),
-	     edge_(s.edge_),
-	     e_(0),
-	     vv_(0),
-	     ee_(0),
-	     depth_(s.depth_)
-	    {
-	    }
-
-	~SBGSimple()
-	    {
-		delete e_;
-		delete vv_;
-		delete ee_;
-	    }
-
-	int size() const { return depth_; }
-	const Graph::Edge* operator[] (int i) const	{ return (*e_)[i]; }
-	bool has_vertex(VI vi) const		        { return (*vv_)[vi]; }
-	bool has_edge(EI ei) const       	        { return (*ee_)[ei]; }
-	const Graph::Edge& edge() const { return edge_; }
-	const SBGSimple* parent() const { return prev_; }
+	const Graph::Edge* operator[] (int i) const	{ return edge_ptr_array_[i]; }
     };
+
 
     // *****************************************************************************
     //                          SBG
     // *****************************************************************************
-    typedef std::vector<unsigned char> VecEE;
-
-    class SBG
+    class SBG : public SBGBase<SBG>
     {
-	const SBG* prev_;
-	Graph::Edge edge_;
+	friend class SBG_Creator;
 
+	DfscVI vi_src_dfsc_;
+	DfscVI vi_dst_dfsc_;
 
-	// Embeddings
-	mutable std::vector<const Graph::Edge*>* e_;
-	mutable std::vector<short>* vv_;
-	mutable VecEE* ee_;
-	mutable unsigned int sum_;
-	mutable std::vector<VI>* s2g_vv_;
-	
-	void init_e_() const;
-	void init_vv_() const;
-	void init_ee_() const;
-	void init_s2g_vv_() const;
+	// size vi_dfsc_to_graph_ array
+	unsigned short num_vertices_;
 
-	const Graph* graph_;
-	int depth_;
+	GraphVI* vi_dfsc_to_graph_;
 
-	VI vi_src_dfsc_;
-	VI vi_dst_dfsc_;
+	// double linked list of the automorphic subgraphs
+	SBG* automorph_next_;
+	SBG* automorph_prev_;
 
-	SBG& operator= (const SBG& s);
-    public:
-	SBG(const Graph* g, const Graph::Edge& e)
-	    :prev_(0),
-	     edge_(e),
-	     e_(0),
-	     vv_(0),
-	     ee_(0),
-	     s2g_vv_(0),
-	     graph_(g),
-	     depth_(1),
+	unsigned short sum_;
+
+	// private ctor and dtor
+	SBG(const Graph::Edge& e, const Graph* g)
+	    :SBGBase<SBG>(e, g),
 	     vi_src_dfsc_(0),
-	     vi_dst_dfsc_(1)
-	    {
-		automorph_next = automorph_prev = this;
-	    }
+	     vi_dst_dfsc_(1),
+	     num_vertices_(2),
+	     vi_dfsc_to_graph_(0),
+	     automorph_next_(this),
+	     automorph_prev_(this),
+	     sum_(e.eid())
+	    {}
 
-	SBG(const SBG* s, const Graph::Edge& e, VI vi_src_dfsc, VI vi_dst_dfsc)
-	    :prev_(s),
-	     edge_(e),
-	     e_(0),
-	     vv_(0),
-	     ee_(0),
-	     s2g_vv_(0),
-	     graph_(s->graph_),
-	     depth_(s->depth_+1),
-	     vi_src_dfsc_(vi_src_dfsc),
-	     vi_dst_dfsc_(vi_dst_dfsc)
-	    {
-		automorph_next = automorph_prev = this;
-	    }
+	SBG(const Graph::Edge& e, const SBG* s, const EdgeCode& ec)
+	    :SBGBase<SBG>(e, s),
+	     vi_src_dfsc_(ec.vi_src()),
+	     vi_dst_dfsc_(ec.vi_dst()),
+	     num_vertices_(s->num_vertices() + ec.is_forward()),
+	     vi_dfsc_to_graph_(0),
+	     automorph_next_(this),
+	     automorph_prev_(this),
+	     sum_(s->sum_ + e.eid())
+	    {}
+    public:
 
-	SBG(const SBG& s)
-	    :prev_(s.prev_),
-	     edge_(s.edge_),
-	     e_(0),
-	     vv_(0),
-	     ee_(0),
-	     s2g_vv_(0),
-	     graph_(s.graph_),
-	     depth_(s.depth_),
-	     vi_src_dfsc_(s.vi_src_dfsc_),
-	     vi_dst_dfsc_(s.vi_dst_dfsc_)
-	    {
-		automorph_next = automorph_prev = this;
-	    }
+	/*
+	 * return array of the graph VI, indexed by the dfsc VI
+	 * so, sbg_vertices[dfsc_vi] == graph vi
+	 * size is number of the vertices, that formed subgraph
+	 */
+	const GraphVI* get_dfsc_to_graph_v() const { return vi_dfsc_to_graph_; }
+
+	/*
+	 * vertices and edge number formed subgraph
+	 */
+	std::size_t num_vertices() const	{ return num_vertices_; }
 
 
-	~SBG()
-	    {
-		delete e_;
-		delete vv_;
-		delete ee_;
-		delete s2g_vv_;
-	    }
+	static void insert_to_automorph_list(SBG* pos, SBG* s);
+	const SBG* next_automorph() const { return automorph_next_; }
 
-	int size() const { return depth_; }
-
-	void init_e() const		{ if (!e_)  init_e_(); }
-	void init_vv() const		{ if (!vv_) init_vv_(); }
-	void init_ee() const		{ if (!ee_) init_ee_(); }
-	void init_s2g_vv() const	{ if (!s2g_vv_) init_s2g_vv_(); }
-
-	const std::vector<const Graph::Edge*>& get_e() const	{ init_e(); return *e_; }
-	const VecEE& get_ee() const		{ init_ee(); return *ee_; }
-	const std::vector<short>& get_vv() const	{ init_vv(); return *vv_; }
-
-	//
-	// return array of the graph VI, indexed by the dfsc VI
-	// so, sbg_vertices[dfsc_vi] == graph vi
-	//
-	const std::vector<VI> get_s2g_vv() const	{ init_s2g_vv(); return *s2g_vv_; }
-
-	//
-	// make array of the dfsc VI, indexed by the graph VI
-	// so, sbg_vertices[graph_vi] == dfsc vi
-	//
-	void graph_to_dfsc_v(std::vector<VI>& vv, VI vi_default = VI_NULL) const;
-
-
-	int num_vertices() const			{ return get_s2g_vv().size(); }
-	const Graph::Edge* operator[] (int i) const	{ return (*e_)[i]; }
-	bool has_vertex(VI vi) const		        { return (*vv_)[vi]; }
-	bool has_edge(EI ei) const       	        { return (*ee_)[ei]; }
-
-	const Graph* get_graph() const { return graph_; }
-	const Graph::Edge& edge() const { return edge_; }
-	const SBG* parent() const { return prev_; }
-
-	VI dfsc_vindex(VI sbg_vi, VI vi_default = VI_NULL) const;
-	const SBG* find_sbg_by_depth(int depth) const;
-	void insert_to_automorph_list(SBG*);
-	SBG* automorph_next;
-	SBG* automorph_prev;
-
-	bool equal(const SBG& s) const
-	    {
-		if (sum_ != s.sum_)
-		    return false;
-
-		const VecEE& ee1 = *ee_;
-		const VecEE& ee2 = *s.ee_;
-		const VecEE::value_type* p1 = ee1.data();
-		const VecEE::value_type* p2 = ee2.data();
-		int n = ee1.size();
-		for (int i = n; i >= 0; --i)
-		    if (((p1[i]^p2[i]) | (p1[n-i]^p2[n-i]))) return false;
-		return true;
-	    }
-
-	bool operator== (const SBG& s) const { return equal(s); }
+	/*
+	 * true in case of the automorphism
+	 */
+	friend bool operator== (const SBG& s1, const SBG& s2);
+	
+	friend std::ostream& operator<<(std::ostream& out, const SBG& sbg);
     };
 
+    void get_chain(std::vector<const SBG*>, const SBG* sbg);
 
     // *****************************************************************************
     //                          Projected

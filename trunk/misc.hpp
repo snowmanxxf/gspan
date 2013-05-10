@@ -4,6 +4,7 @@
 #include "gspan.hpp"
 #include <vector>
 #include <map>
+#include <list>
 #include <boost/foreach.hpp>
 
 struct InputGraph
