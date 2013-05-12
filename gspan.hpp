@@ -1,44 +1,39 @@
-#ifndef GSPAN2_H_
-#define GSPAN2_H_
+#ifndef GSPAN_H_
+#define GSPAN_H_
 
 #include <iostream>
 #include <vector>
 #include <set>
 #include <map>
 #include <cassert>
+#include <cstring>	// memset(), memcpy()
+
+#include <boost/noncopyable.hpp>
 
 #ifdef USE_ASM
 #include <stdint.h>
 #endif
 
-#include <boost/noncopyable.hpp>
-
 #include "gspan_allocator.hpp"
 #include "gspan_graph.hpp"
-
 
 #ifndef BR
 #define BR asm volatile ("int3;")
 #endif
 
-
-extern unsigned int nctor;
-extern unsigned int ndtor;
-
-namespace gSpan2
+namespace gSpan
 {
 
     // *****************************************************************************
     //                          EdgeCode
+    //				DFSCode
     // *****************************************************************************
     class EdgeCode
     {
 	friend struct EdgeCodeCmpLex;
 #ifdef USE_ASM
 	// TODO: Compatibility check for DfscVI, VL and EL for uint16_t
-
 	enum { VI_SRC_I, VI_DST_I, VL_SRC_I, EL_I, VL_DST_I };
-
 	uint16_t x_[5];
 #else
 	DfscVI vi_src_, vi_dst_;
@@ -102,26 +97,9 @@ namespace gSpan2
 	bool operator== (const EdgeCode& ec) const;
     };
 
-    struct EdgeCodeCmpDfs
-    {
-	bool operator() (const EdgeCode& ec1, const EdgeCode& ec2) const  __attribute__((noinline));
-    };
-
-    struct EdgeCodeCmpLex
-    {
-	bool operator() (const EdgeCode& ec1, const EdgeCode& ec2) const  __attribute__((noinline));
-    };
-
-
-    std::ostream& operator<<(std::ostream& out, const EdgeCode& ec);
-	
-    // *****************************************************************************
-    //                          DFSCode
-    // *****************************************************************************
     typedef std::vector<EdgeCode> DFSCode;
-    
     DfscVI max_vertex(const DFSCode& dfsc);
-    std::ostream& operator<<(std::ostream& out, const DFSCode& dfsc);
+    
 
     // *****************************************************************************
     //                          SBGBase
@@ -137,13 +115,14 @@ namespace gSpan2
     inline std::size_t graph_size(const Graph* g)
     { return std::max(g->num_vertices(), g->num_edges()); }
 
-
-    class SBG_Creator;
+    template<class S> class SBGCreator;
+    template<class S> class SBG_List;
 
     template<class SBG_Derived>
     class SBGBase : private boost::noncopyable
     {
-	friend class SBG_Creator;
+	friend class SBGCreator<SBG_Derived>;
+	friend class SBG_List<SBG_Derived>;
 
 	Graph::Edge edge_;
 
@@ -155,12 +134,28 @@ namespace gSpan2
 	EVBool* ev_array_;
 
 	const Graph* graph_;
+
+	// single linked list all SBG in given embedding
+	SBG_Derived* next_embedding_;
+
+	void init_ev_array1(MemAllocator* mem_alloc);
+	void init_ev_array2(MemAllocator* mem_alloc);
+	void free_ev_array(MemAllocator* mem_alloc)
+	    { mem_alloc->dealloc_array(ev_array_, graph_size(get_graph())); }
+
     protected:
 	SBGBase(const Graph::Edge& e, const Graph* g)
-	    :edge_(e), parent_(0), depth_(1), ev_array_(0), graph_(g) {}
+	    :edge_(e), parent_(0), depth_(1), ev_array_(0), graph_(g), next_embedding_(0) {}
 	
 	SBGBase(const Graph::Edge& e, const SBG_Derived* s)
-	    :edge_(e), parent_(s), depth_(s->depth_ + 1), ev_array_(0), graph_(s->graph_) {}
+	    :edge_(e),
+	     parent_(s),
+	     depth_(s->depth_ + 1),
+	     ev_array_(0),
+	     graph_(s->graph_),
+	     next_embedding_(0)
+	    {}
+
     public:
 	const Graph::Edge& edge() const		{ return edge_; }
 	const Graph* get_graph() const		{ return graph_; }
@@ -176,6 +171,8 @@ namespace gSpan2
 	void set_has_extension(GraphVI v)	{ ev_array_[v].v_no_exts = false; }
 
 	const EVBool* ev_array() const		{ return ev_array_; }
+
+	SBG_Derived* next_embedding() const	{ return next_embedding_; }
     };
 
     template<class S>
@@ -191,15 +188,40 @@ namespace gSpan2
 	return 0;
     }
     
+    template<class SBG_Derived>
+    void SBGBase<SBG_Derived>::init_ev_array1(MemAllocator* mem_alloc)
+    {
+	std::size_t ev_size = graph_size(graph_);
+	std::size_t alloc_size = ev_size * sizeof(*ev_array_);
+	ev_array_ = mem_alloc->alloc_array<EVBool>(ev_size);
+	::memset(ev_array_, 0, alloc_size);
+
+        ev_array_[edge_.eid()].e_in_sbg = true;
+        ev_array_[edge_.vi_src()].v_in_sbg = true;
+        ev_array_[edge_.vi_dst()].v_in_sbg = true;
+    }
+
+    template<class SBG_Derived>
+    void SBGBase<SBG_Derived>::init_ev_array2(MemAllocator* mem_alloc)
+    {
+	std::size_t ev_size = graph_size(graph_);
+	std::size_t alloc_size = ev_size * sizeof(*ev_array_);
+	ev_array_ = mem_alloc->alloc_array<EVBool>(ev_size);
+	::memcpy(ev_array_, parent_->ev_array_, alloc_size);
+        ev_array_[edge_.eid()].e_in_sbg = true;
+        ev_array_[edge_.vi_src()].v_in_sbg = true;
+        ev_array_[edge_.vi_dst()].v_in_sbg = true;
+    }
+
 
     // *****************************************************************************
     //                          SBGSimple
     // *****************************************************************************
     class SBGSimple : public SBGBase<SBGSimple>
     {
-	friend class SBG_Creator;
+	friend class SBGCreator<SBGSimple>;
 
-	Graph::Edge** edge_ptr_array_;
+	const Graph::Edge** edge_ptr_array_;
 
 	SBGSimple(const Graph::Edge& e, const Graph* g)
 	    :SBGBase<SBGSimple>(e, g),
@@ -210,6 +232,11 @@ namespace gSpan2
 	    :SBGBase<SBGSimple>(e, s),
 	     edge_ptr_array_(0)
 	    {}
+	
+	void init_edge_ptr_array1(MemAllocator* mem_alloc);
+	void init_edge_ptr_array2(MemAllocator* mem_alloc);
+	void free_edge_ptr_array(MemAllocator* mem_alloc)
+	    { mem_alloc->dealloc_array(edge_ptr_array_, num_edges()); }
     public:
 	const Graph::Edge* operator[] (int i) const	{ return edge_ptr_array_[i]; }
     };
@@ -220,7 +247,7 @@ namespace gSpan2
     // *****************************************************************************
     class SBG : public SBGBase<SBG>
     {
-	friend class SBG_Creator;
+	friend class SBGCreator<SBG>;
 
 	DfscVI vi_src_dfsc_;
 	DfscVI vi_dst_dfsc_;
@@ -233,7 +260,7 @@ namespace gSpan2
 	// double linked list of the automorphic subgraphs
 	SBG* automorph_next_;
 	SBG* automorph_prev_;
-
+	
 	unsigned short sum_;
 
 	// private ctor and dtor
@@ -258,6 +285,11 @@ namespace gSpan2
 	     automorph_prev_(this),
 	     sum_(s->sum_ + e.eid())
 	    {}
+
+	void init_dfsc_to_graph_array1(MemAllocator* mem_alloc);
+	void init_dfsc_to_graph_array2(MemAllocator* mem_alloc);
+	void free_dfsc_to_graph_array(MemAllocator* mem_alloc)
+	    { mem_alloc->dealloc_array(vi_dfsc_to_graph_, num_vertices()); }
     public:
 
 	/*
@@ -272,9 +304,16 @@ namespace gSpan2
 	 */
 	std::size_t num_vertices() const	{ return num_vertices_; }
 
+	//
+	// array of the dfsc VI, indexed by the graph VI
+	// so, sbg_vertices[graph_vi] == dfsc vi
+	//
+	DfscVI* create_graph_to_dfsc_v(MemAllocator* mem_alloc, DfscVI vi_default);
+	void free_graph_to_dfsc_v(DfscVI*, MemAllocator* mem_alloc);
 
 	static void insert_to_automorph_list(SBG* pos, SBG* s);
 	const SBG* next_automorph() const { return automorph_next_; }
+
 
 	/*
 	 * true in case of the automorphism
@@ -284,53 +323,85 @@ namespace gSpan2
 	friend std::ostream& operator<<(std::ostream& out, const SBG& sbg);
     };
 
-    void get_chain(std::vector<const SBG*>, const SBG* sbg);
+    void get_chain(std::vector<const SBG*>&, const SBG* sbg);
+
 
     // *****************************************************************************
-    //                          Projected
+    //                          SubgraphsOfGraph
     // *****************************************************************************
-    //
-    // Projected part visible for user
-    //
 
     class SubgraphsOfOneGraph
     {
-	typedef std::vector<SBG*> SBGS_PTR;
-	SBGS_PTR sbgs_uniq_ptr_;
-	static void insert_sbgs_uniq_ptr(SBGS_PTR& cont, SBG* s);
-	
-	std::set<const SBG*> sbg_parents_;
+	typedef std::vector<SBG*, STL_Allocator<SBG*> > SBGS_PTR;
+	typedef std::set<const SBG*,
+			 std::less<const SBG*>,
+			 STL_Allocator<const SBG*> > SBG_Parents;
+
+	SBGS_PTR sbgs_uniq_ptr_;	
+	SBG_Parents sbg_parents_;
 	mutable bool support_valid_;
 	mutable int support_;
-	void calc_support_v() const;
+
+	void calc_support_v(const SBG* slist) const;
+	static void insert_sbgs_uniq_ptr(SBGS_PTR& cont, SBG* s);
     public:
-	SubgraphsOfOneGraph() :support_valid_(false) {}
+	explicit
+	SubgraphsOfOneGraph(MemAllocator* mem_alloc)
+	    :sbgs_uniq_ptr_(STL_Allocator<SBG*>(mem_alloc)),
+	     sbg_parents_(std::less<const SBG*>(),
+			  STL_Allocator<const SBG*>(mem_alloc)),
+	     support_valid_(false) {}
+
 	typedef typename SBGS_PTR::const_iterator const_iterator;
-	const_iterator begin() const { return sbgs_uniq_ptr_.begin(); }
-	const_iterator end()   const { return sbgs_uniq_ptr_.end(); }
-	int support() const { if (! support_valid_) calc_support_v(); return support_; }
-	int size() const { return sbgs_uniq_ptr_.size(); }
-	int num_sbgs_uniq() const { return size(); }
-	void push(SBG* s);
+	const_iterator begin() const	{ return sbgs_uniq_ptr_.begin(); }
+	const_iterator end()   const	{ return sbgs_uniq_ptr_.end(); }
+	std::size_t size() const	{ return sbgs_uniq_ptr_.size(); }
+	int support() const
+	    {
+		if (!support_valid_)
+		    BR;
+		assert(support_valid_);
+		assert(support_ > 0);
+		return support_;
+	    }
+
+	// ----------------------------
+	// for internal use
+	// ----------------------------
+	int support(const SBG* slist) const
+	    { if (!support_valid_) calc_support_v(slist); return support_; }
+	
 	bool is_equal_occurrence(const SubgraphsOfOneGraph& prj) const;
+
+	void insert(SBG* s);
     };
 
     
+    
     class SubgraphsOfManyGraph
     {
+	typedef const Graph* const Key;
 	typedef SubgraphsOfOneGraph SOG;
-	typedef std::map<const Graph* const, SOG> G_SOG;
+	typedef STL_Allocator<std::pair<Key, SOG> > G_SOG_Allocator;
+	typedef std::map<Key, SOG, std::less<Key>, G_SOG_Allocator> G_SOG;
 	G_SOG g_sog_;
-	int num_sbgs_uniq_;
+	std::size_t size_;
     public:
-	SubgraphsOfManyGraph() :num_sbgs_uniq_(0) {}
+	explicit
+	SubgraphsOfManyGraph(MemAllocator* mem_alloc)
+	    :g_sog_(std::less<Key>(), G_SOG_Allocator(mem_alloc)),
+	     size_(0)
+	    {}
+
+	typedef typename G_SOG::iterator iterator;
 	typedef typename G_SOG::const_iterator const_iterator;
 	const_iterator begin() const	{ return g_sog_.begin(); }
 	const_iterator end()   const	{ return g_sog_.end(); }
 	int support() const		{ return g_sog_.size(); }
-	int num_sbgs_uniq() const	{ return num_sbgs_uniq_; }
-	void push(SBG* s);
+	int support(const SBG*) const	{ return g_sog_.size(); }
+	std::size_t size() const	{ return size_; }
 	bool is_equal_occurrence(const SubgraphsOfManyGraph& prj) const;
+	void insert(SBG* s);
     };
 
     // *****************************************************************************

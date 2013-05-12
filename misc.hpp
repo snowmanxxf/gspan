@@ -36,8 +36,8 @@ bool check_lebels(const std::map<std::string, int>& str_to_i, const std::map<std
 
 struct WorkingGraphs
 {
-    std::vector<const gSpan2::Graph*> graphs;
-    std::map<const gSpan2::Graph*, std::string> names;
+    std::vector<const gSpan::Graph*> graphs;
+    std::map<const gSpan::Graph*, std::string> names;
 };
 
 void create_working_graphs(WorkingGraphs& wrk_graphs,

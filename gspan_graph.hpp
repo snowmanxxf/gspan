@@ -6,9 +6,14 @@
 #include <vector>
 #include <limits>
 #include <iterator>		// std::distance()
+#include <algorithm>		// std::max()
 #include <iostream>
 
-namespace gSpan2
+#ifndef BR
+#define BR asm volatile ("int3;")
+#endif
+
+namespace gSpan
 {
 
     namespace detail
@@ -54,13 +59,26 @@ namespace gSpan2
 #endif
     
     // *****************************************************************************
-    //                          GraphSimple
+    //                          Graph
     // *****************************************************************************
-    class GraphSimple
+    class Graph
     {
     public:
 	template<class EdgeCodeIterator>
-	GraphSimple(EdgeCodeIterator it, const EdgeCodeIterator it_end, int num_vertices);
+	Graph(EdgeCodeIterator it, const EdgeCodeIterator it_end)
+	    :vertices_(calc_num_vertices(it, it_end)),
+	     num_vertices_(vertices_.size()),
+	     num_edges_(std::distance(it, it_end)),
+	     edges_(num_edges_)
+	    { init(it, it_end); }
+
+	template<class EdgeCodeIterator>
+	Graph(EdgeCodeIterator it, const EdgeCodeIterator it_end, int num_vertices)
+	    :vertices_(num_vertices),
+	     num_vertices_(num_vertices),
+	     num_edges_(std::distance(it, it_end)),
+	     edges_(num_edges_)
+	    { init(it, it_end); }
 	
 	class Edge
 	{
@@ -120,16 +138,17 @@ namespace gSpan2
 	std::vector<IncidentEdges> vertices_;
 	std::size_t num_vertices_;
 	std::size_t num_edges_;
-	Edges edges_;	
+	Edges edges_;
+	
+	template<class EdgeCodeIterator>
+	void init(EdgeCodeIterator it, const EdgeCodeIterator it_end);
+
+	template<class EdgeCodeIterator>
+	std::size_t calc_num_vertices(EdgeCodeIterator it, const EdgeCodeIterator it_end);
     };
 
-
     template<class EdgeCodeIterator>
-    GraphSimple::GraphSimple(EdgeCodeIterator it, const EdgeCodeIterator it_end, int num_vertices)
-	:vertices_(num_vertices),
-	 num_vertices_(num_vertices),
-	 num_edges_(std::distance(it, it_end)),
-	 edges_(num_edges_)	 
+    void Graph::init(EdgeCodeIterator it, const EdgeCodeIterator it_end)
     {
 	edges_.resize(num_edges_ * 2U);
 	GraphEI e_idx1 = 0;
@@ -156,23 +175,13 @@ namespace gSpan2
 	}
     }
 
-
-    // *****************************************************************************
-    //                          Graph
-    // *****************************************************************************
-    class Graph : public GraphSimple
-    {
-    public:
-	template<class EdgeCodeIterator>
-	Graph(EdgeCodeIterator it, const EdgeCodeIterator it_end, int num_vertices);
-    };
-
     template<class EdgeCodeIterator>
-    Graph::Graph(EdgeCodeIterator it, const EdgeCodeIterator it_end, int num_vertices)
-	:GraphSimple(it, it_end, num_vertices)
+    std::size_t Graph::calc_num_vertices(EdgeCodeIterator it, const EdgeCodeIterator it_end)
     {
+	EdgeCodeIterator last = it_end;
+	while ((--last)->is_backward());
+	return last->vi_dst() + 1;
     }
-
 
 
     inline std::ostream& operator<<(std::ostream& out, const Graph::Edge& e)

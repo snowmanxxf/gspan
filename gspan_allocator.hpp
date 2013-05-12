@@ -5,10 +5,11 @@
 #include <vector>
 #include <stack>
 #include <memory>
+#include <cassert>
 
 #include <stdint.h>
 
-namespace gSpan2
+namespace gSpan
 {
     class FixedAllocator
     {
@@ -28,7 +29,12 @@ namespace gSpan2
 	std::vector<FixedAllocator*> fallocs_;
     public:
 	~MemAllocator();
-	void* allocate(std::size_t data_size);
+
+	FixedAllocator* get_fixed_allocator(std::size_t data_size);
+
+	void* allocate(std::size_t data_size)
+	    { return get_fixed_allocator(data_size)->allocate(); }
+
 	void deallocate(void*, std::size_t data_size);
 
 	template<class T>
@@ -40,11 +46,14 @@ namespace gSpan2
 	template<class T>
 	void dealloc_array(T* p, std::size_t n)
 	    {
-		deallocate(p, sizeof(T) * n);
+		if (p)
+		{
+		    assert(n > 0);
+		    deallocate(p, sizeof(T) * n);
+		}
 	    }
     };
 
-    // ------------------------------ STL_Allocator ------------------------------------
 
     template<class T>
     class STL_Allocator : public std::allocator<T>
@@ -58,19 +67,24 @@ namespace gSpan2
 	typedef std::size_t	size_type;
 	typedef std::ptrdiff_t	difference_type;
 
+	template <class U> 
+	struct rebind { typedef STL_Allocator<U> other; };
+
+	explicit
 	STL_Allocator(MemAllocator* m) throw() :malloc_(m) {}
 
 	STL_Allocator(const STL_Allocator& r) throw() :malloc_(r.malloc_) {}
 
 	template <class U>
-	STL_Allocator(const STL_Allocator<U>& r) throw() :malloc_(r.malloc_) {}
+	STL_Allocator(const STL_Allocator<U>& r) throw() :malloc_(r.get_mem_alloc()) {}
 
 	pointer allocate(size_type n, std::allocator<void>::const_pointer hint = 0)
-	    { return alloc_(n); }
+	    { return static_cast<pointer>(alloc_(n)); }
 
 	void deallocate(pointer p, size_type n)
 	    { dealloc_(p, n); }
 
+	MemAllocator* get_mem_alloc() const { return malloc_; }
     private:
 	MemAllocator* malloc_;	// no owner
 	
@@ -98,22 +112,21 @@ namespace gSpan2
     void* STL_Allocator<T>::alloc_(size_type n)
     {
 	std::size_t data_offset = alignup(sizeof(BlockHeader));
-	std::size_t alloc_size = data_offset + sizeof(T) * n;
-	void* block_ptr = malloc_->allocate(alloc_size);
-	return alignup_ptr(block_ptr);
+	std::size_t alloc_size = alignup(data_offset + alignup(sizeof(T) * n));
+	unsigned char* block_ptr = reinterpret_cast<unsigned char*>(malloc_->allocate(alloc_size));
+	return reinterpret_cast<void*>(block_ptr + data_offset);
     }
 
     template<class T>
     void STL_Allocator<T>::dealloc_(void* p, size_type n)
     {
 	std::size_t data_offset = alignup(sizeof(BlockHeader));
-	std::size_t alloc_size = data_offset + sizeof(T) * n;
+	std::size_t alloc_size = alignup(data_offset + alignup(sizeof(T) * n));
 	::uintptr_t x = reinterpret_cast< ::uintptr_t >(p);
-	void* block_ptr = x - data_offset;
+	void* block_ptr = reinterpret_cast<void*>(x - data_offset);
 	malloc_->deallocate(block_ptr, alloc_size);
     }
 
-    typedef STL_Allocator<void*> STLAllocator;
 }
 
 #endif
