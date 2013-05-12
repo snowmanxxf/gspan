@@ -7,10 +7,10 @@
 #endif
 
 
-namespace gSpan2
+namespace gSpan
 {
 
-    // ------------------------------ FixedAllocator -----------------------------------
+    // -------------- FixedAllocator -----------------------
     
     FixedAllocator::~FixedAllocator()
     {
@@ -34,7 +34,7 @@ namespace gSpan2
 	return ::operator new (data_size_);
     }
 
-    // ------------------------------ MemAllocator -------------------------------------
+    // ------------- MemAllocator --------------------------
 
     MemAllocator::~MemAllocator()
     {
@@ -42,7 +42,7 @@ namespace gSpan2
 	    delete fallocs_[i];
     }
 
-    void* MemAllocator::allocate(std::size_t data_size)
+    FixedAllocator* MemAllocator::get_fixed_allocator(std::size_t data_size)
     {
 	assert(data_size > 0);
 	std::size_t old_size = fallocs_.size();
@@ -52,7 +52,7 @@ namespace gSpan2
 	    for (std::size_t i = old_size; i < data_size; ++i)
 		fallocs_[i] = new FixedAllocator(i + 1);
 	}
-	return fallocs_[data_size - 1]->allocate();
+	return fallocs_[data_size - 1];
     }
 
     void MemAllocator::deallocate(void* p, std::size_t data_size)

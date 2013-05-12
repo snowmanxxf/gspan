@@ -4,7 +4,7 @@ enum PatternViewMode { PV_LG, PV_DFSC, PV_EDGE} pattern_view_mode;
 enum MappingViewMode { MV_NONE, MV_TABLE, MV_MAP } mapping_view_mode;
 bool inline_view;
 
-using namespace gSpan2;
+using namespace gSpan;
 
 class Result : public GspanResult
 {
@@ -385,8 +385,4 @@ int main(int argc, char** argv)
 	closegraph(*wrk_graphs.graphs.back(), minsup, &result, tracedepth);
     else
 	closegraph(wrk_graphs.graphs, minsup, &result, tracedepth);
-
-    extern unsigned int nctor;
-    extern unsigned int ndtor;
-    std::cerr << "" <<nctor << " " << ndtor <<std::endl;
 }
