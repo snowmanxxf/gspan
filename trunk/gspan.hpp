@@ -21,6 +21,13 @@
 #define BR asm volatile ("int3;")
 #endif
 
+#ifdef USE_ASM
+#define PREFETCH(addr)  asm("prefetcht0 %0\n" : :"m"((addr)))
+#else
+#define PREFETCH(addr)
+#endif
+
+
 namespace gSpan
 {
 
@@ -204,6 +211,7 @@ namespace gSpan
     template<class SBG_Derived>
     void SBGBase<SBG_Derived>::init_ev_array2(MemAllocator* mem_alloc)
     {
+	PREFETCH(*parent_->ev_array_);
 	std::size_t ev_size = graph_size(graph_);
 	std::size_t alloc_size = ev_size * sizeof(*ev_array_);
 	ev_array_ = mem_alloc->alloc_array<EVBool>(ev_size);
@@ -212,34 +220,6 @@ namespace gSpan
         ev_array_[edge_.vi_src()].v_in_sbg = true;
         ev_array_[edge_.vi_dst()].v_in_sbg = true;
     }
-
-
-    // *****************************************************************************
-    //                          SBGSimple
-    // *****************************************************************************
-    class SBGSimple : public SBGBase<SBGSimple>
-    {
-	friend class SBGCreator<SBGSimple>;
-
-	const Graph::Edge** edge_ptr_array_;
-
-	SBGSimple(const Graph::Edge& e, const Graph* g)
-	    :SBGBase<SBGSimple>(e, g),
-	     edge_ptr_array_(0)
-	    {}
-
-	SBGSimple(const Graph::Edge& e, const SBGSimple* s)
-	    :SBGBase<SBGSimple>(e, s),
-	     edge_ptr_array_(0)
-	    {}
-	
-	void init_edge_ptr_array1(MemAllocator* mem_alloc);
-	void init_edge_ptr_array2(MemAllocator* mem_alloc);
-	void free_edge_ptr_array(MemAllocator* mem_alloc)
-	    { mem_alloc->dealloc_array(edge_ptr_array_, num_edges()); }
-    public:
-	const Graph::Edge* operator[] (int i) const	{ return edge_ptr_array_[i]; }
-    };
 
 
     // *****************************************************************************
@@ -350,7 +330,8 @@ namespace gSpan
 	    :sbgs_uniq_ptr_(STL_Allocator<SBG*>(mem_alloc)),
 	     sbg_parents_(std::less<const SBG*>(),
 			  STL_Allocator<const SBG*>(mem_alloc)),
-	     support_valid_(false) {}
+	     support_valid_(false)
+	    {}
 
 	typedef typename SBGS_PTR::const_iterator const_iterator;
 	const_iterator begin() const	{ return sbgs_uniq_ptr_.begin(); }
@@ -358,8 +339,6 @@ namespace gSpan
 	std::size_t size() const	{ return sbgs_uniq_ptr_.size(); }
 	int support() const
 	    {
-		if (!support_valid_)
-		    BR;
 		assert(support_valid_);
 		assert(support_ > 0);
 		return support_;
