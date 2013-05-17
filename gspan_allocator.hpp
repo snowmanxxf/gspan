@@ -13,14 +13,17 @@ namespace gSpan
 {
     class FixedAllocator
     {
-	std::stack<void*> free_ptrs_;
+	std::vector<void*> free_ptrs_; // stack
 	std::size_t data_size_;
     public:
-	FixedAllocator(std::size_t data_size) :data_size_(data_size) {}
+	FixedAllocator(std::size_t data_size)
+	    :data_size_(data_size)
+	    { free_ptrs_.reserve(1024 * 2); }
+
 	~FixedAllocator();
 
 	void* allocate();
-	void deallocate(void* p)	{ free_ptrs_.push(p); }
+	void deallocate(void* p)	{ free_ptrs_.push_back(p); }
     };
 
 

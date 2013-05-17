@@ -16,8 +16,8 @@ namespace gSpan
     {
 	while (!free_ptrs_.empty())
 	{
-	    void* p = free_ptrs_.top();
-	    free_ptrs_.pop();
+	    void* p = free_ptrs_.back();
+	    free_ptrs_.pop_back();
 	    ::operator delete(p);
 	}
     }
@@ -27,8 +27,8 @@ namespace gSpan
     {
 	if (!free_ptrs_.empty())
 	{
-	    void* p = free_ptrs_.top();
-	    free_ptrs_.pop();
+	    void* p = free_ptrs_.back();
+	    free_ptrs_.pop_back();
 	    return p;
 	}
 	return ::operator new (data_size_);

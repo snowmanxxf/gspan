@@ -6,7 +6,6 @@
 #include <queue>
 #include <algorithm>
 
-
 namespace gSpan
 {
     // *****************************************************************************
@@ -230,22 +229,24 @@ namespace gSpan
 
 
     // *****************************************************************************
+    //                          SBGSimple
+    // *****************************************************************************
+    class SBGSimple : public SBGBase<SBGSimple>
+    {
+	friend class SBGCreator<SBGSimple>;
+	SBGSimple(const Graph::Edge& e, const Graph* g)
+	    :SBGBase<SBGSimple>(e, g)
+	    {}
+
+	SBGSimple(const Graph::Edge& e, const SBGSimple* s)
+	    :SBGBase<SBGSimple>(e, s)
+	    {}
+    };
+
+
+    // *****************************************************************************
     //                          SBG
     // *****************************************************************************
-
-    void SBGSimple::init_edge_ptr_array1(MemAllocator* mem_alloc)
-    {
-	edge_ptr_array_ = mem_alloc->alloc_array<const Graph::Edge*>(1);
-	edge_ptr_array_[0] = &this->edge();
-    }
-
-    void SBGSimple::init_edge_ptr_array2(MemAllocator* mem_alloc)
-    {
-	edge_ptr_array_ = mem_alloc->alloc_array<const Graph::Edge*>(num_edges());
-	::memcpy(edge_ptr_array_, parent()->edge_ptr_array_, num_edges() * sizeof(const Graph::Edge*));
-	edge_ptr_array_[num_edges() - 1] = &this->edge();
-    }
-
 
     void SBG::init_dfsc_to_graph_array1(MemAllocator* mem_alloc)
     {
@@ -257,6 +258,7 @@ namespace gSpan
 
     void SBG::init_dfsc_to_graph_array2(MemAllocator* mem_alloc)
     {
+	PREFETCH(*parent()->vi_dfsc_to_graph_);
 	vi_dfsc_to_graph_ = mem_alloc->alloc_array<GraphVI>(num_vertices());
 	::memcpy(vi_dfsc_to_graph_,
 		 parent()->vi_dfsc_to_graph_,
@@ -309,8 +311,10 @@ namespace gSpan
             return false;
         unsigned int n = s1.get_graph()->num_vertices();
         for (unsigned int i = 0; i < n; ++i)
-            if (s1.ev_array()[i].e_in_sbg != s2.ev_array()[i].e_in_sbg)
-                return false;
+	{
+	    if (s1.ev_array()[i].e_in_sbg != s2.ev_array()[i].e_in_sbg)
+		return false;
+	}
         return true;
     }
 
@@ -362,25 +366,24 @@ namespace gSpan
 	void delete_sbg(SBGSimple*);
     };
 
+    // root sbg
     SBGSimple* SBGCreator<SBGSimple>::new_sbg(const Graph::Edge& e, const Graph* g)
     {
 	SBGSimple* p = new (sbg_alloc_->allocate()) SBGSimple(e, g);
 	p->init_ev_array1(mem_alloc_);
-	p->init_edge_ptr_array1(mem_alloc_);
 	return p;
     }
 
+    // other sbg
     SBGSimple* SBGCreator<SBGSimple>::new_sbg(const Graph::Edge& e, const SBGSimple* s)
     {
 	SBGSimple* p = new (sbg_alloc_->allocate()) SBGSimple(e, s);
 	p->init_ev_array2(mem_alloc_);
-	p->init_edge_ptr_array2(mem_alloc_);
 	return p;
     }
 
     void SBGCreator<SBGSimple>::delete_sbg(SBGSimple* p)
     {
-	p->free_edge_ptr_array(mem_alloc_);
 	p->free_ev_array(mem_alloc_);
 	p->~SBGSimple();
 	sbg_alloc_->deallocate(p);
@@ -415,6 +418,7 @@ namespace gSpan
 
     SBG* SBGCreator<SBG>::new_sbg(const Graph::Edge& e, const SBG* s, const EdgeCode& ec)
     {
+	//PREFETCH(*s);
 	SBG* p = new (sbg_alloc_->allocate()) SBG(e, s, ec);
 	p->init_ev_array2(mem_alloc_);
 	p->init_dfsc_to_graph_array2(mem_alloc_);
@@ -545,7 +549,7 @@ namespace gSpan
 
     bool SubgraphsOfOneGraph::is_equal_occurrence(const SubgraphsOfOneGraph& parent) const
     {
-        unsigned int n = 0;
+	unsigned int n = 0;
         for (const_iterator i_gr = parent.begin(); i_gr != parent.end(); ++i_gr)
         {
             const SBG* s = *i_gr;
@@ -594,10 +598,10 @@ namespace gSpan
     }
 
     // *****************************************************************************
-    //                          SBGCollection
+    //                          Embeddings
     // *****************************************************************************
     template<class SubgraphsOfGraph>
-    class SBGCollection : public SBG_List<SBG>
+    class Embeddings : public SBG_List<SBG>
     {
 	typedef SBG_List<SBG> Base;
 	Base& base() { return *this; }
@@ -606,7 +610,7 @@ namespace gSpan
     public:
 	typedef SBG SBG_Type;
 
-	SBGCollection(SBGCreator<SBG>* creator)
+	Embeddings(SBGCreator<SBG>* creator)
 	    :SBG_List<SBG>(creator),
 	     sg_(creator->mem_allocator())
 	    {}
@@ -618,11 +622,11 @@ namespace gSpan
 	SBGCreator<SBG_Type>* sbg_creator() const { return base().sbg_creator(); }
 
 	template<class T>
-	friend std::ostream& operator<<(std::ostream& out, const SBGCollection<T>& sbg_collection);
+	friend std::ostream& operator<<(std::ostream& out, const Embeddings<T>& sbg_collection);
     };
 
     template<class SubgraphsOfGraph>
-    std::ostream& operator<<(std::ostream& out, const SBGCollection<SubgraphsOfGraph>& embd)
+    std::ostream& operator<<(std::ostream& out, const Embeddings<SubgraphsOfGraph>& embd)
     {
 	out << static_cast<const SBG_List<SBG>&>(embd);
 	out << "\tsupport=" << embd.support()
@@ -633,7 +637,7 @@ namespace gSpan
     }
 
     template<class SG>
-    inline bool is_equal_occurrence(const SBGCollection<SG>& new_embd, const SBGCollection<SG>& embd)
+    inline bool is_equal_occurrence(const Embeddings<SG>& new_embd, const Embeddings<SG>& embd)
     { return new_embd.container().is_equal_occurrence(embd.container()); }
 
 
@@ -681,12 +685,12 @@ namespace gSpan
     // *****************************************************************************
     template<class SG, class Cmp>
     class Extension : public std::map<EdgeCode,
-				      SBGCollection<SG>,
+				      Embeddings<SG>,
 				      Cmp,
-				      STL_Allocator<std::pair<EdgeCode, SBGCollection<SG> > > >
+				      STL_Allocator<std::pair<EdgeCode, Embeddings<SG> > > >
     {
-	typedef STL_Allocator<std::pair<EdgeCode, SBGCollection<SG> > > MapAlloc;
-	typedef std::map<EdgeCode, SBGCollection<SG>, Cmp, MapAlloc> Base;
+	typedef STL_Allocator<std::pair<EdgeCode, Embeddings<SG> > > MapAlloc;
+	typedef std::map<EdgeCode, Embeddings<SG>, Cmp, MapAlloc> Base;
 	Base& base() { return *this; }
 	SBGCreator<SBG>* sbg_creator_;
     public:
@@ -702,7 +706,7 @@ namespace gSpan
     template<class SG, class Cmp>
     void Extension<SG,Cmp>::insert(const EdgeCode& ec, const Graph::Edge& e, const Graph* g)
     {
-	typename Base::value_type val(ec, SBGCollection<SG>(sbg_creator_));
+	typename Base::value_type val(ec, Embeddings<SG>(sbg_creator_));
 	std::pair<typename Base::iterator,bool> pr = base().insert(val);
 	pr.first->second.insert(sbg_creator_->new_sbg(e, g));
     }
@@ -710,7 +714,7 @@ namespace gSpan
     template<class SG, class Cmp>
     void Extension<SG,Cmp>::insert(const EdgeCode& ec, const Graph::Edge& e, const SBG* s)
     {
-	typename Base::value_type val(ec, SBGCollection<SG>(sbg_creator_));
+	typename Base::value_type val(ec, Embeddings<SG>(sbg_creator_));
 	std::pair<typename Base::iterator,bool> pr = base().insert(val);
 	pr.first->second.insert(sbg_creator_->new_sbg(e, s, ec));
     }
@@ -903,7 +907,7 @@ namespace gSpan
     template<class SG>
     struct FrameState
     {
-	typedef SBGCollection<SG> Embd;
+	typedef Embeddings<SG> Embd;
 	const Embd* embd;
 
         RMPath rmpath;
@@ -1011,8 +1015,12 @@ namespace gSpan
 
 	    for (SBGSimple* s = elist.get_first(); s; s = s->next_embedding())
 	    {
-		const Graph::Edge* e_rmost = (*s)[rmpath.rightmost_edgeindex()];
-                const GraphVI graph_vi = (*s)[rmpath[i]]->vi_src();
+		const SBGSimple* s_rmost = parent(s, rmpath.rightmost_edgeindex() + 1);
+		const Graph::Edge* e_rmost = &s_rmost->edge();
+		const GraphVI graph_vi = parent(s_rmost, rmpath[i] + 1)->edge().vi_src();
+
+		// const Graph::Edge* e_rmost = (*s)[rmpath.rightmost_edgeindex()];
+                // const GraphVI graph_vi = (*s)[rmpath[i]]->vi_src();
 
                 if (s->has_no_extension(graph_vi))
                     continue;
@@ -1055,8 +1063,12 @@ namespace gSpan
 	// forward pure
 	for (SBGSimple* s = elist.get_first(); s; s = s->next_embedding())
 	{
-            const Graph::Edge* e_rmost = (*s)[rmpath.rightmost_edgeindex()];
-            GraphVI graph_vi = e_rmost->vi_dst();
+	    const SBGSimple* s_rmost = parent(s, rmpath.rightmost_edgeindex() + 1);
+	    const Graph::Edge* e_rmost = &s_rmost->edge();
+	    GraphVI graph_vi = e_rmost->vi_dst();
+
+            // const Graph::Edge* e_rmost = (*s)[rmpath.rightmost_edgeindex()];
+            // GraphVI graph_vi = e_rmost->vi_dst();
 
             if (s->has_no_extension(graph_vi))
                 continue;
@@ -1087,7 +1099,8 @@ namespace gSpan
 	    const EdgeCode& ec_rmpath = dfsc_min[rmpath[i]];
 	    for (SBGSimple* s = elist.get_first(); s; s = s->next_embedding())
 	    {
-		GraphVI graph_vi = (*s)[rmpath[i]]->vi_src();
+		const GraphVI graph_vi = parent(s, rmpath[i] + 1)->edge().vi_src();
+		//GraphVI graph_vi = (*s)[rmpath[i]]->vi_src();
 
 		if (s->has_no_extension(graph_vi))
 		    continue;
@@ -1355,7 +1368,7 @@ namespace gSpan
 	MemAllocator* mem_alloc = &shared->mem_alloc;
         REdges& r_edges = frame->r_edges;
         XEdges& x_edges = frame->x_edges;
-        const SBGCollection<SG>& embd = *frame->embd;
+        const Embeddings<SG>& embd = *frame->embd;
         const RMPath& rmpath = frame->rmpath;
         const DfscVI vi_dfsc_rmost   = rmpath.rightmost_vertex();
         const DfscVI vi_dfsc_new = vi_dfsc_rmost + 1;
@@ -1604,7 +1617,7 @@ namespace gSpan
     }
     
     template<class SG>
-    void project(SharedData* shared, FrameState<SG>* parent_frame, const SBGCollection<SG>* embd)
+    void project(SharedData* shared, FrameState<SG>* parent_frame, const Embeddings<SG>* embd)
     {
         typedef typename FrameState<SG>::REdges REdges;
         typedef typename FrameState<SG>::XEdges XEdges;
@@ -1689,7 +1702,7 @@ namespace gSpan
     {
         for (typename Extension<SG, EdgeCodeCmpDfs>::iterator i = r_edges.begin(); i != r_edges.end(); ++i)
         {
-            SBGCollection<SG>& embd = i->second;
+            Embeddings<SG>& embd = i->second;
             if (embd.support() >= shared->minsup_)
             {
                 shared->dfsc.push_back(i->first);
@@ -1708,7 +1721,7 @@ namespace gSpan
 	return;
 */
         SharedData shared(minsup, result, max_trace_depth);
-        typedef SBGCollection<SubgraphsOfOneGraph> Embd;
+        typedef Embeddings<SubgraphsOfOneGraph> Embd;
         Extension<SubgraphsOfOneGraph, EdgeCodeCmpDfs> r_edges(&shared.mem_alloc, &shared.sbg_creator);
 
         enum_one_edges(r_edges, graph);
@@ -1719,7 +1732,7 @@ namespace gSpan
     void closegraph(const std::vector<const Graph*>& graphs, int minsup, GspanResult* result, int max_trace_depth)
     {
         SharedData shared(minsup, result, max_trace_depth);
-        typedef SBGCollection<SubgraphsOfManyGraph> Embd;
+        typedef Embeddings<SubgraphsOfManyGraph> Embd;
         Extension<SubgraphsOfManyGraph, EdgeCodeCmpDfs> r_edges(&shared.mem_alloc, &shared.sbg_creator);
         for (std::vector<const Graph*>::const_iterator i = graphs.begin(); i != graphs.end(); ++i)
             enum_one_edges(r_edges, **i);
