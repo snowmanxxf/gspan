@@ -176,8 +176,8 @@ void Result::print_mapping(const DFSCode& dfsc, const SubgraphsOfOneGraph& sog) 
                 for (int i = 0; i < NUM_EDGES; ++i)
                 {
                     const EdgeCode& ec = dfsc[i];
-                    vvm[ec.vi_src()] = chain[i]->edge().vi_src();
-                    vvm[ec.vi_dst()] = chain[i]->edge().vi_dst();
+                    vvm[ec.vi_src()] = chain[i]->edge()->vi_src();
+                    vvm[ec.vi_dst()] = chain[i]->edge()->vi_dst();
                 }
                 ostr << "#mv: ";
                 for (std::map<DfscVI, GraphVI>::const_iterator i = vvm.begin(); i != vvm.end(); ++i)
@@ -185,7 +185,7 @@ void Result::print_mapping(const DFSCode& dfsc, const SubgraphsOfOneGraph& sog) 
                 ostr << std::endl;
                 ostr << "#me: ";
                 for (int i = 0; i < NUM_EDGES; ++i)
-                    ostr << i << "->" << chain[i]->edge().eid() << " ";
+                    ostr << i << "->" << chain[i]->edge()->eid() << " ";
                 ostr << std::endl;
 
 		s = s->next_automorph();
@@ -203,8 +203,8 @@ void Result::print_mapping(const DFSCode& dfsc, const SubgraphsOfOneGraph& sog) 
 		get_chain(chain, s);
 
                 for (int i = 0; i < NUM_EDGES; ++i)
-                    ostr << " (" << chain[i]->edge().vi_src() << "," << chain[i]->edge().vi_dst() << ")"
-			 << chain[i]->edge().eid();
+                    ostr << " (" << chain[i]->edge()->vi_src() << "," << chain[i]->edge()->vi_dst() << ")"
+			 << chain[i]->edge()->eid();
                 ostr << std::endl;
 		s = s->next_automorph();
             } while (s != S_END);

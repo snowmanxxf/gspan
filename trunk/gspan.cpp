@@ -140,8 +140,9 @@ namespace gSpan
     //
     // return: rmpath vertices number
     //
+    template<class DFSC>
     std::size_t
-    make_rmpath(RMPath_I_EdgeCode& rmpath_i_ec, DfscVI_Vertices& dfsc_vertices, const DFSCode& dfsc)
+    make_rmpath(RMPath_I_EdgeCode& rmpath_i_ec, DfscVI_Vertices& dfsc_vertices, const DFSC& dfsc)
     {
         // until first forward edge
         signed int idx = dfsc.size();
@@ -190,7 +191,8 @@ namespace gSpan
         DfscVI_Vertices         dfsc_vertices_;
         std::size_t             n_rmp_;
     public:
-        RMPath(const DFSCode& dfsc, MemAllocator* mem_alloc)
+	template<class DFSC>
+        RMPath(const DFSC& dfsc, MemAllocator* mem_alloc)
 	    :rmpath_i_ec_(STL_Allocator<int>(mem_alloc)),
 	     dfsc_vertices_(STL_Allocator<DfscVI>(mem_alloc))
 	    {
@@ -234,11 +236,11 @@ namespace gSpan
     class SBGSimple : public SBGBase<SBGSimple>
     {
 	friend class SBGCreator<SBGSimple>;
-	SBGSimple(const Graph::Edge& e, const Graph* g)
+	SBGSimple(const Graph::Edge* e, const Graph* g)
 	    :SBGBase<SBGSimple>(e, g)
 	    {}
 
-	SBGSimple(const Graph::Edge& e, const SBGSimple* s)
+	SBGSimple(const Graph::Edge* e, const SBGSimple* s)
 	    :SBGBase<SBGSimple>(e, s)
 	    {}
     };
@@ -251,8 +253,8 @@ namespace gSpan
     void SBG::init_dfsc_to_graph_array1(MemAllocator* mem_alloc)
     {
 	vi_dfsc_to_graph_ = mem_alloc->alloc_array<GraphVI>(2);
-	vi_dfsc_to_graph_[0] = edge().vi_src();
-        vi_dfsc_to_graph_[1] = edge().vi_dst();
+	vi_dfsc_to_graph_[0] = edge()->vi_src();
+        vi_dfsc_to_graph_[1] = edge()->vi_dst();
     }
 
 
@@ -263,8 +265,8 @@ namespace gSpan
 	::memcpy(vi_dfsc_to_graph_,
 		 parent()->vi_dfsc_to_graph_,
 		 parent()->num_vertices() * sizeof(GraphVI));
-	vi_dfsc_to_graph_[vi_src_dfsc_] = edge().vi_src();
-        vi_dfsc_to_graph_[vi_dst_dfsc_] = edge().vi_dst();
+	vi_dfsc_to_graph_[vi_src_dfsc_] = edge()->vi_src();
+        vi_dfsc_to_graph_[vi_dst_dfsc_] = edge()->vi_dst();
     }
 
 
@@ -281,8 +283,8 @@ namespace gSpan
         const SBG* s = this;
         do
         {
-            p[s->edge().vi_src()] = s->vi_src_dfsc_;
-            p[s->edge().vi_dst()] = s->vi_dst_dfsc_;
+            p[s->edge()->vi_src()] = s->vi_src_dfsc_;
+            p[s->edge()->vi_dst()] = s->vi_dst_dfsc_;
             s = s->parent();
         } while (s);
 
@@ -361,13 +363,13 @@ namespace gSpan
 
 	MemAllocator* mem_allocator() const { return mem_alloc_; }
 
-	SBGSimple* new_sbg(const Graph::Edge& e, const Graph* g);
-	SBGSimple* new_sbg(const Graph::Edge& e, const SBGSimple* s);
+	SBGSimple* new_sbg(const Graph::Edge* e, const Graph* g);
+	SBGSimple* new_sbg(const Graph::Edge* e, const SBGSimple* s);
 	void delete_sbg(SBGSimple*);
     };
 
     // root sbg
-    SBGSimple* SBGCreator<SBGSimple>::new_sbg(const Graph::Edge& e, const Graph* g)
+    SBGSimple* SBGCreator<SBGSimple>::new_sbg(const Graph::Edge* e, const Graph* g)
     {
 	SBGSimple* p = new (sbg_alloc_->allocate()) SBGSimple(e, g);
 	p->init_ev_array1(mem_alloc_);
@@ -375,7 +377,7 @@ namespace gSpan
     }
 
     // other sbg
-    SBGSimple* SBGCreator<SBGSimple>::new_sbg(const Graph::Edge& e, const SBGSimple* s)
+    SBGSimple* SBGCreator<SBGSimple>::new_sbg(const Graph::Edge* e, const SBGSimple* s)
     {
 	SBGSimple* p = new (sbg_alloc_->allocate()) SBGSimple(e, s);
 	p->init_ev_array2(mem_alloc_);
@@ -401,13 +403,13 @@ namespace gSpan
 
 	MemAllocator*	mem_allocator() const { return mem_alloc_; }
 
-	SBG* new_sbg(const Graph::Edge& e, const Graph* g);
-	SBG* new_sbg(const Graph::Edge& e, const SBG* s, const EdgeCode& ec);
+	SBG* new_sbg(const Graph::Edge* e, const Graph* g);
+	SBG* new_sbg(const Graph::Edge* e, const SBG* s, const EdgeCode& ec);
 	void delete_sbg(SBG*);
     };
 
 
-    SBG* SBGCreator<SBG>::new_sbg(const Graph::Edge& e, const Graph* g)
+    SBG* SBGCreator<SBG>::new_sbg(const Graph::Edge* e, const Graph* g)
     {
 	SBG* p = new (sbg_alloc_->allocate()) SBG(e, g);
 	p->init_ev_array1(mem_alloc_);
@@ -416,7 +418,7 @@ namespace gSpan
     }
 
 
-    SBG* SBGCreator<SBG>::new_sbg(const Graph::Edge& e, const SBG* s, const EdgeCode& ec)
+    SBG* SBGCreator<SBG>::new_sbg(const Graph::Edge* e, const SBG* s, const EdgeCode& ec)
     {
 	//PREFETCH(*s);
 	SBG* p = new (sbg_alloc_->allocate()) SBG(e, s, ec);
@@ -699,12 +701,12 @@ namespace gSpan
 	    :Base(Cmp(), MapAlloc(mem_alloc)),
 	     sbg_creator_(sbg_creator) {}
 
-        void insert(const EdgeCode& ec, const Graph::Edge& e, const Graph* g);
-        void insert(const EdgeCode& ec, const Graph::Edge& e, const SBG* s);	
+        void insert(const EdgeCode& ec, const Graph::Edge* e, const Graph* g);
+        void insert(const EdgeCode& ec, const Graph::Edge* e, const SBG* s);	
     };
 
     template<class SG, class Cmp>
-    void Extension<SG,Cmp>::insert(const EdgeCode& ec, const Graph::Edge& e, const Graph* g)
+    void Extension<SG,Cmp>::insert(const EdgeCode& ec, const Graph::Edge* e, const Graph* g)
     {
 	typename Base::value_type val(ec, Embeddings<SG>(sbg_creator_));
 	std::pair<typename Base::iterator,bool> pr = base().insert(val);
@@ -712,7 +714,7 @@ namespace gSpan
     }
 
     template<class SG, class Cmp>
-    void Extension<SG,Cmp>::insert(const EdgeCode& ec, const Graph::Edge& e, const SBG* s)
+    void Extension<SG,Cmp>::insert(const EdgeCode& ec, const Graph::Edge* e, const SBG* s)
     {
 	typename Base::value_type val(ec, Embeddings<SG>(sbg_creator_));
 	std::pair<typename Base::iterator,bool> pr = base().insert(val);
@@ -741,10 +743,10 @@ namespace gSpan
 	MinimalExtension(SBGCreator<SBGSimple>* sbg_creator)
 	    :SBG_List<SBGSimple>(sbg_creator) {}
 	
-        void insert(const EdgeCode& ec, const Graph::Edge& e, const Graph* g)
+        void insert(const EdgeCode& ec, const Graph::Edge* e, const Graph* g)
 	    { insert(ec, base().sbg_creator()->new_sbg(e, g)); }
 
-	void insert(const EdgeCode& ec, const Graph::Edge& e, const SBGSimple* s)
+	void insert(const EdgeCode& ec, const Graph::Edge* e, const SBGSimple* s)
 	    { insert(ec, base().sbg_creator()->new_sbg(e, s)); }
 
 	const EdgeCode& get_ec() const { return ec_; }
@@ -883,8 +885,9 @@ namespace gSpan
         void on_enter_frame()           {}
 #endif
 
-        SharedData(int minsup, GspanResult* result, unsigned int max_trace_depth)
-            : sbg_creator(&mem_alloc)
+        SharedData(int minsup, std::size_t max_num_vertices, GspanResult* result, unsigned int max_trace_depth)
+            : dfsc(max_num_vertices)
+            , sbg_creator(&mem_alloc)
 	    , sbgsimple_creator(&mem_alloc)
 	    , minsup_(minsup)
             , result_(result)
@@ -988,17 +991,21 @@ namespace gSpan
     template<class Ext>
     void enum_one_edges(Ext& ext, const Graph& g)
     {
-        const Graph::Edges& g_edges = g.edges();
+        const Graph::EdgesSet& g_edges = g.edges();
         for (Graph::EdgesIterator it = g_edges.begin(); it != g_edges.end(); ++it)
-            ext.insert(EdgeCode(0, 1, it->vl_src(), it->el(), it->vl_dst(), true), *it, &g);
+            ext.insert(EdgeCode(0, 1, it->vl_src(), it->el(), it->vl_dst(), true), &*it, &g);
     }
 
     // -----------------------------------
     //	dfscode minimality check
     // -----------------------------------
 
+    // for dfsc check minimality, we use std::vector as DFSCode
+    typedef std::vector<EdgeCode> DFSCodeLite;
+
+
     void enumerate_min_bck(MinimalExtension& ext,
-			   const DFSCode& dfsc_min,
+			   const DFSCodeLite& dfsc_min,
                            const SBG_List<SBGSimple>& elist,
 			   const RMPath& rmpath,
 			   const Graph& g)
@@ -1016,33 +1023,25 @@ namespace gSpan
 	    for (SBGSimple* s = elist.get_first(); s; s = s->next_embedding())
 	    {
 		const SBGSimple* s_rmost = parent(s, rmpath.rightmost_edgeindex() + 1);
-		const Graph::Edge* e_rmost = &s_rmost->edge();
-		const GraphVI graph_vi = parent(s_rmost, rmpath[i] + 1)->edge().vi_src();
-
-		// const Graph::Edge* e_rmost = (*s)[rmpath.rightmost_edgeindex()];
-                // const GraphVI graph_vi = (*s)[rmpath[i]]->vi_src();
+		const Graph::Edge* e_rmost = s_rmost->edge();
+		const GraphVI graph_vi = parent(s_rmost, rmpath[i] + 1)->edge()->vi_src();
 
                 if (s->has_no_extension(graph_vi))
                     continue;
                 s->set_no_has_extension(graph_vi);
 
-		const Graph::IncidentEdges& incid_edges = g.incident(graph_vi);
-                Graph::IncidentEdgesIterator it = incid_edges.begin();
-                Graph::IncidentEdgesIterator it_end = incid_edges.end();
-                for (; it != it_end; ++it)
+                for (const Graph::Edge* e = g.incident(graph_vi); e; e = e->next_adjacent())
                 {
-                    const Graph::Edge* pe = *it;
-                    if (s->has_edge(pe->eid()))
+                    if (s->has_edge(e->eid()))
                         continue;
 		    s->set_has_extension(graph_vi);
 		    
-		    if (pe->vi_dst() == e_rmost->vi_dst() &&
-                        ((vl_less_eq && el_rmpath == pe->el()) || el_rmpath < pe->el()))
+		    if (e->vi_dst() == e_rmost->vi_dst() &&
+                        ((vl_less_eq && el_rmpath == e->el()) || el_rmpath < e->el()))
                     {
-                        Graph::Edge e = *pe;
-                        e.chgdir();
-                        EdgeCode ec(vi_dfsc_rmost, ec_rmpath.vi_src(), vl_rmost, e.el(), ec_rmpath.vl_src(), false);
-                        ext.insert(ec, e, s);
+                        const Graph::Edge* e_rev = e->reverse();
+                        EdgeCode ec(vi_dfsc_rmost, ec_rmpath.vi_src(), vl_rmost, e_rev->el(), ec_rmpath.vl_src(), false);
+                        ext.insert(ec, e_rev, s);
                         break;
                     }
 		}
@@ -1051,7 +1050,7 @@ namespace gSpan
     }
  
     void enumerate_min_fwd(MinimalExtension& ext,
-			   const DFSCode& dfsc_min,
+			   const DFSCodeLite& dfsc_min,
                            const SBG_List<SBGSimple>& elist,
 			   const RMPath& rmpath,
 			   const Graph& g)
@@ -1064,7 +1063,7 @@ namespace gSpan
 	for (SBGSimple* s = elist.get_first(); s; s = s->next_embedding())
 	{
 	    const SBGSimple* s_rmost = parent(s, rmpath.rightmost_edgeindex() + 1);
-	    const Graph::Edge* e_rmost = &s_rmost->edge();
+	    const Graph::Edge* e_rmost = s_rmost->edge();
 	    GraphVI graph_vi = e_rmost->vi_dst();
 
             // const Graph::Edge* e_rmost = (*s)[rmpath.rightmost_edgeindex()];
@@ -1074,12 +1073,8 @@ namespace gSpan
                 continue;
             s->set_no_has_extension(graph_vi);
 
-            const Graph::IncidentEdges& incid_edges = g.incident(graph_vi);
-            Graph::IncidentEdgesIterator it = incid_edges.begin();
-            Graph::IncidentEdgesIterator it_end = incid_edges.end();
-            for (; it != it_end; ++it)
+            for (const Graph::Edge* e = g.incident(graph_vi); e; e = e->next_adjacent())
             {
-                const Graph::Edge* e = *it;
                 if (s->has_edge(e->eid()))
                     continue;
                 s->set_has_extension(graph_vi);
@@ -1087,7 +1082,7 @@ namespace gSpan
                 if (! s->has_vertex(e->vi_dst()) && vl_minimum <= e->vl_dst())
                 {
                     EdgeCode ec(vi_dfsc_rmost, vi_dfsc_rmost+1, vl_rmost, e->el(), e->vl_dst(), true);
-                    ext.insert(ec, *e, s);
+                    ext.insert(ec, e, s);
                 }
             }
 	}
@@ -1099,19 +1094,14 @@ namespace gSpan
 	    const EdgeCode& ec_rmpath = dfsc_min[rmpath[i]];
 	    for (SBGSimple* s = elist.get_first(); s; s = s->next_embedding())
 	    {
-		const GraphVI graph_vi = parent(s, rmpath[i] + 1)->edge().vi_src();
-		//GraphVI graph_vi = (*s)[rmpath[i]]->vi_src();
+		const GraphVI graph_vi = parent(s, rmpath[i] + 1)->edge()->vi_src();
 
 		if (s->has_no_extension(graph_vi))
 		    continue;
 		s->set_no_has_extension(graph_vi);
 
-                const Graph::IncidentEdges& incid_edges = g.incident(graph_vi);
-                Graph::IncidentEdgesIterator it = incid_edges.begin();
-                Graph::IncidentEdgesIterator it_end = incid_edges.end();
-                for (; it != it_end; ++it)
+                for (const Graph::Edge* e = g.incident(graph_vi); e; e = e->next_adjacent())
                 {
-                    const Graph::Edge* e = *it;
                     if (s->has_edge(e->eid()))
                         continue;
 		    s->set_has_extension(graph_vi);
@@ -1120,18 +1110,19 @@ namespace gSpan
                         ((ec_rmpath.vl_dst() <= e->vl_dst() && ec_rmpath.el() == e->el()) || ec_rmpath.el() < e->el()))
                     {
                         EdgeCode ec(ec_rmpath.vi_src(), vi_dfsc_rmost+1, ec_rmpath.vl_src(), e->el(), e->vl_dst(), true);
-                        ext.insert(ec, *e, s);
+                        ext.insert(ec, e, s);
                     }
                 }
 	    }
 	}
     }
     
-
     bool is_min_iterative(SharedData* shared)
     {
 	const DFSCode& dfsc_tested = shared->dfsc;
-	Graph graph(dfsc_tested.begin(), dfsc_tested.end());
+
+	const Graph& graph = dfsc_tested.get_graph();
+	//Graph graph(dfsc_tested.begin(), dfsc_tested.end());
 
 	typedef STL_Allocator<MinimalExtension> ExtAllocator;
 	std::list<MinimalExtension, ExtAllocator> exts(1,
@@ -1141,7 +1132,7 @@ namespace gSpan
 	
 	enum_one_edges(*exts1, graph);
 
-	DFSCode dfsc_min;
+	DFSCodeLite dfsc_min;
 	dfsc_min.reserve(dfsc_tested.size());
 
 	while (true)
@@ -1193,11 +1184,11 @@ namespace gSpan
     bool is_min(SharedData* shared, FrameState<P>* frame,
 		const EdgeCode& ec, bool& last_result, EdgeCode& ec_last)
     {
-        shared->dfsc.push_back(ec);
+        shared->dfsc.push(ec);
         bool r = is_min_fast(shared, ec, frame->rmpath, last_result, ec_last);
         if (r)
             ec_last = ec;
-        shared->dfsc.pop_back();
+        shared->dfsc.pop();
         return r;
     }
 
@@ -1214,7 +1205,7 @@ namespace gSpan
         cerr << shared->dfsc.size() << ":";
         for (unsigned int i = 0; i < shared->dfsc.size(); ++i)
             cerr << " ";
-        cerr << shared->dfsc.back()
+        cerr << shared->dfsc.top()
              << " support=" << frame->embd->support()
              << " size=" << frame->embd->size()
              << " num_uniq=" << frame->embd->container().size()
@@ -1409,13 +1400,9 @@ namespace gSpan
                 if (s->has_no_extension(graph_vi))
                     continue;
                 s->set_no_has_extension(graph_vi);
-                                
-                const Graph::IncidentEdges& incid_edges = g->incident(graph_vi);
-                Graph::IncidentEdgesIterator it = incid_edges.begin();
-                const Graph::IncidentEdgesIterator it_end = incid_edges.end();
-                for (; it != it_end; ++it)
+                      
+                for (const Graph::Edge* e = g->incident(graph_vi); e; e = e->next_adjacent())
                 {
-                    const Graph::Edge* e = *it;
                     if (s->has_edge(e->eid()))
                         continue;
                     s->set_has_extension(graph_vi);
@@ -1439,7 +1426,7 @@ namespace gSpan
                             // vi_dst is new vertex
                             // R forward
                             EdgeCode ec(dfsc_vi, vi_dfsc_new, e->vl_src(), e->el(), e->vl_dst(), true);
-                            r_edges.insert(ec, *e, s);
+                            r_edges.insert(ec, e, s);
                         }
                         else if (e->vi_src() == vi_rmost && vertex_rmpath_status[e->vi_dst()])
                         {
@@ -1448,7 +1435,7 @@ namespace gSpan
                             DfscVI dfsc_vi_dst = graph_to_dfsc_v[e->vi_dst()];
                             assert(dfsc_vi_dst != vi_dfsc_new);
                             EdgeCode ec(dfsc_vi, dfsc_vi_dst, e->vl_src(), e->el(), e->vl_dst(), false);
-                            r_edges.insert(ec, *e, s);
+                            r_edges.insert(ec, e, s);
                         }
                         else
                         {
@@ -1458,7 +1445,7 @@ namespace gSpan
                                 DfscVI dfsc_vi_dst = graph_to_dfsc_v[e->vi_dst()];
                                 assert(dfsc_vi_dst != vi_dfsc_new);
                                 EdgeCode ec(dfsc_vi, dfsc_vi_dst, e->vl_src(), e->el(), e->vl_dst(), false);
-                                x_edges.insert(ec, *e, s);
+                                x_edges.insert(ec, e, s);
                             }
                         }
                     }
@@ -1469,7 +1456,7 @@ namespace gSpan
                         DfscVI dfsc_vi_dst = graph_to_dfsc_v[e->vi_dst()];
                         EdgeCode ec(dfsc_vi, dfsc_vi_dst,
                                     e->vl_src(), e->el(), e->vl_dst(), ! s->has_vertex(e->vi_dst()));
-                        x_edges.insert(ec, *e, s);
+                        x_edges.insert(ec, e, s);
                     }
                 }
             }
@@ -1505,12 +1492,8 @@ namespace gSpan
                 
         std::queue<GraphVI> q;
 
-        const Graph::IncidentEdges& incid_edges = g.incident(sbg->edge().vi_dst());
-        Graph::IncidentEdgesIterator it = incid_edges.begin();
-        Graph::IncidentEdgesIterator it_end = incid_edges.end();
-        for (; it != it_end; ++it)
+        for (const Graph::Edge* e = g.incident(sbg->edge()->vi_dst()); e; e = e->next_adjacent())
         {
-            const Graph::Edge* e = *it;
             if (sbg->has_edge(e->eid()))
                 continue;
             if (sbg->has_vertex(e->vi_dst()))
@@ -1521,7 +1504,7 @@ namespace gSpan
             else
                 q.push(e->vi_dst());
         }
-        visited[sbg->edge().vi_dst()] = true;
+        visited[sbg->edge()->vi_dst()] = true;
 
         bool failure = false;
         while (!failure && !q.empty())
@@ -1530,13 +1513,8 @@ namespace gSpan
             q.pop();
             visited[vi] = true;
 
-
-            const Graph::IncidentEdges& incid_edges = g.incident(vi);
-            Graph::IncidentEdgesIterator it = incid_edges.begin();
-            Graph::IncidentEdgesIterator it_end = incid_edges.end();
-            for (; it != it_end; ++it)
+            for (const Graph::Edge* e = g.incident(vi); e; e = e->next_adjacent())
             {
-                const Graph::Edge* e = *it;
                 GraphVI vi2 = e->vi_dst();
                 if (sbg->has_vertex(vi2))
                 {
@@ -1685,9 +1663,9 @@ namespace gSpan
         typedef typename RChildren::const_iterator ChIter;
         for (ChIter it = frame.children.begin(); it != frame.children.end(); ++it)
         {
-            shared->dfsc.push_back(*it->first);
+            shared->dfsc.push(*it->first);
             project(shared, &frame, it->second);
-            shared->dfsc.pop_back();
+            shared->dfsc.pop();
 
 #ifdef CHECK_MODE
             if (! frame.TERMINATED_BRANCH && it->first == frame.ec_early_term)
@@ -1705,9 +1683,9 @@ namespace gSpan
             Embeddings<SG>& embd = i->second;
             if (embd.support() >= shared->minsup_)
             {
-                shared->dfsc.push_back(i->first);
+                shared->dfsc.push(i->first);
                 project<SG>(shared, 0, &embd);
-                shared->dfsc.pop_back();
+                shared->dfsc.pop();
             }
         }
     }
@@ -1720,7 +1698,7 @@ namespace gSpan
 	std::cerr << std::endl;
 	return;
 */
-        SharedData shared(minsup, result, max_trace_depth);
+        SharedData shared(minsup, graph.num_vertices(), result, max_trace_depth);
         typedef Embeddings<SubgraphsOfOneGraph> Embd;
         Extension<SubgraphsOfOneGraph, EdgeCodeCmpDfs> r_edges(&shared.mem_alloc, &shared.sbg_creator);
 
@@ -1731,7 +1709,11 @@ namespace gSpan
 
     void closegraph(const std::vector<const Graph*>& graphs, int minsup, GspanResult* result, int max_trace_depth)
     {
-        SharedData shared(minsup, result, max_trace_depth);
+        std::size_t max_vi = 0;
+        for (std::vector<const Graph*>::const_iterator i = graphs.begin(); i != graphs.end(); ++i)
+            max_vi = std::max(max_vi, (*i)->num_vertices());
+
+        SharedData shared(minsup, max_vi + 1, result, max_trace_depth);
         typedef Embeddings<SubgraphsOfManyGraph> Embd;
         Extension<SubgraphsOfManyGraph, EdgeCodeCmpDfs> r_edges(&shared.mem_alloc, &shared.sbg_creator);
         for (std::vector<const Graph*>::const_iterator i = graphs.begin(); i != graphs.end(); ++i)

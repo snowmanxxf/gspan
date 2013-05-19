@@ -8,7 +8,6 @@
 #include <cassert>
 #include <cstring>	// memset(), memcpy()
 
-#include <boost/noncopyable.hpp>
 
 #ifdef USE_ASM
 #include <stdint.h>
@@ -104,7 +103,32 @@ namespace gSpan
 	bool operator== (const EdgeCode& ec) const;
     };
 
-    typedef std::vector<EdgeCode> DFSCode;
+    // *****************************************************************************
+    //                          DFSCode
+    // *****************************************************************************
+    class DFSCode
+    {
+	std::vector<EdgeCode> dfsc_;
+	Graph graph_;
+    public:
+        DFSCode(std::size_t max_num_vertices) :graph_(max_num_vertices) {}
+
+	// dfscode is a stack
+	typedef std::vector<EdgeCode>::const_iterator const_iterator;
+	const EdgeCode& top() const { return dfsc_.back(); }
+	const_iterator begin() const { return dfsc_.begin(); }
+	const_iterator end() const { return dfsc_.end(); }
+	std::size_t size() const { return dfsc_.size(); }
+	void push(const EdgeCode& ec)	{ dfsc_.push_back(ec); graph_.push_edge(ec); }
+	void pop()			{ dfsc_.pop_back(); graph_.pop_edge(); }
+	const EdgeCode& operator[] (int i) const { return dfsc_[i]; }
+	void reserve(std::size_t s) { dfsc_.reserve(s); }
+
+	const Graph& get_graph() const { return graph_; }
+    };
+
+
+    //typedef std::vector<EdgeCode> DFSCode;
     DfscVI max_vertex(const DFSCode& dfsc);
     
 
@@ -131,7 +155,7 @@ namespace gSpan
 	friend class SBGCreator<SBG_Derived>;
 	friend class SBG_List<SBG_Derived>;
 
-	Graph::Edge edge_;
+	const Graph::Edge* edge_;
 
 	// single linked list of the subgraph edges
 	const SBG_Derived* parent_;
@@ -151,10 +175,10 @@ namespace gSpan
 	    { mem_alloc->dealloc_array(ev_array_, graph_size(get_graph())); }
 
     protected:
-	SBGBase(const Graph::Edge& e, const Graph* g)
+	SBGBase(const Graph::Edge* e, const Graph* g)
 	    :edge_(e), parent_(0), depth_(1), ev_array_(0), graph_(g), next_embedding_(0) {}
 	
-	SBGBase(const Graph::Edge& e, const SBG_Derived* s)
+	SBGBase(const Graph::Edge* e, const SBG_Derived* s)
 	    :edge_(e),
 	     parent_(s),
 	     depth_(s->depth_ + 1),
@@ -164,7 +188,7 @@ namespace gSpan
 	    {}
 
     public:
-	const Graph::Edge& edge() const		{ return edge_; }
+	const Graph::Edge* edge() const		{ return edge_; }
 	const Graph* get_graph() const		{ return graph_; }
 	const SBG_Derived* parent() const	{ return parent_; }
 	std::size_t num_edges() const		{ return depth_; }
@@ -203,9 +227,9 @@ namespace gSpan
 	ev_array_ = mem_alloc->alloc_array<EVBool>(ev_size);
 	::memset(ev_array_, 0, alloc_size);
 
-        ev_array_[edge_.eid()].e_in_sbg = true;
-        ev_array_[edge_.vi_src()].v_in_sbg = true;
-        ev_array_[edge_.vi_dst()].v_in_sbg = true;
+        ev_array_[edge_->eid()].e_in_sbg = true;
+        ev_array_[edge_->vi_src()].v_in_sbg = true;
+        ev_array_[edge_->vi_dst()].v_in_sbg = true;
     }
 
     template<class SBG_Derived>
@@ -216,9 +240,9 @@ namespace gSpan
 	std::size_t alloc_size = ev_size * sizeof(*ev_array_);
 	ev_array_ = mem_alloc->alloc_array<EVBool>(ev_size);
 	::memcpy(ev_array_, parent_->ev_array_, alloc_size);
-        ev_array_[edge_.eid()].e_in_sbg = true;
-        ev_array_[edge_.vi_src()].v_in_sbg = true;
-        ev_array_[edge_.vi_dst()].v_in_sbg = true;
+        ev_array_[edge_->eid()].e_in_sbg = true;
+        ev_array_[edge_->vi_src()].v_in_sbg = true;
+        ev_array_[edge_->vi_dst()].v_in_sbg = true;
     }
 
 
@@ -244,7 +268,7 @@ namespace gSpan
 	unsigned short sum_;
 
 	// private ctor and dtor
-	SBG(const Graph::Edge& e, const Graph* g)
+	SBG(const Graph::Edge* e, const Graph* g)
 	    :SBGBase<SBG>(e, g),
 	     vi_src_dfsc_(0),
 	     vi_dst_dfsc_(1),
@@ -252,10 +276,10 @@ namespace gSpan
 	     vi_dfsc_to_graph_(0),
 	     automorph_next_(this),
 	     automorph_prev_(this),
-	     sum_(e.eid())
+	     sum_(e->eid())
 	    {}
 
-	SBG(const Graph::Edge& e, const SBG* s, const EdgeCode& ec)
+	SBG(const Graph::Edge* e, const SBG* s, const EdgeCode& ec)
 	    :SBGBase<SBG>(e, s),
 	     vi_src_dfsc_(ec.vi_src()),
 	     vi_dst_dfsc_(ec.vi_dst()),
@@ -263,7 +287,7 @@ namespace gSpan
 	     vi_dfsc_to_graph_(0),
 	     automorph_next_(this),
 	     automorph_prev_(this),
-	     sum_(s->sum_ + e.eid())
+	     sum_(s->sum_ + e->eid())
 	    {}
 
 	void init_dfsc_to_graph_array1(MemAllocator* mem_alloc);

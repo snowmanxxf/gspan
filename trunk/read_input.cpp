@@ -145,7 +145,8 @@ void create_working_graphs(WorkingGraphs& wrk_graphs,
     BOOST_FOREACH(const InputGraph& ig, input_graphs)
     {
 	int corr = ig.vl.begin()->first == 1;
-	gSpan::DFSCode dfsc;
+	
+        std::vector<gSpan::EdgeCode> eclist;
 	for (std::vector<InputGraph::E>::const_iterator i = ig.edges.begin(); i != ig.edges.end(); ++i)
 	{
 	    typedef std::map<std::string, int>::const_iterator I;
@@ -164,10 +165,11 @@ void create_working_graphs(WorkingGraphs& wrk_graphs,
 	    
 	    bool fwd = (i->from - corr) < (i->to - corr);
 	    gSpan::EdgeCode ec(i->from - corr, i->to - corr, vl_from_i, el_i, vl_to_i, fwd);
-	    dfsc.push_back(ec);
+	    eclist.push_back(ec);
 	}
 
-	gSpan::Graph* graph = new gSpan::Graph(dfsc.begin(), dfsc.end(), max_vertex(dfsc) + 1);
+	gSpan::Graph* graph = new gSpan::Graph(eclist.begin(), eclist.end());
+
 	wrk_graphs.names[graph] = ig.name;
 	wrk_graphs.graphs.push_back(graph);
     }
