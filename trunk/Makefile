@@ -5,8 +5,11 @@ CFLAGS += -DGSPAN_TRACE
 #CFLAGS += -DCHECK_MODE
 CFLAGS += -DDEBUG_PRINT
 #CFLAGS += -DNDEBUG
-CFLAGS += -DTYPE_CHECK
+#CFLAGS += -DTYPE_CHECK
 CFLAGS += -DUSE_ASM
+
+#CFLAGS +=  -fprofile-generate
+#CFLAGS +=  -fprofile-use
 
 # test programm
 closegraph: main.cpp misc.hpp read_input.cpp gspan.hpp libgspan.a
@@ -28,4 +31,4 @@ gspan_allocator.o: gspan_allocator.hpp gspan_allocator.cpp
 
 
 clean:
-	rm -f *.o *.ii *.s libgspan.a closegraph
+	rm -f *.o *.ii *.s *.gcda gmon.out libgspan.a closegraph

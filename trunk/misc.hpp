@@ -38,6 +38,12 @@ struct WorkingGraphs
 {
     std::vector<const gSpan::Graph*> graphs;
     std::map<const gSpan::Graph*, std::string> names;
+
+    ~WorkingGraphs()
+        {
+            for (unsigned int i = 0; i < graphs.size(); ++i)
+                delete graphs[i];
+        }
 };
 
 void create_working_graphs(WorkingGraphs& wrk_graphs,

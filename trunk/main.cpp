@@ -6,6 +6,7 @@ bool inline_view;
 
 using namespace gSpan;
 
+#if 1
 class Result : public GspanResult
 {
 public:
@@ -62,8 +63,8 @@ void Result::operator() (const DFSCode& dfsc, const SubgraphsOfManyGraph& smg)
     {
 	for (SubgraphsOfManyGraph::const_iterator i = smg.begin(); i != smg.end(); ++i)
 	{
-	    ostr << "#tograph: " << wrk_graphs.names[i->first] << std::endl;
-	    print_mapping(dfsc, i->second);
+	    ostr << "#tograph: " << wrk_graphs.names[i->get_graph()] << std::endl;
+	    print_mapping(dfsc, *i);
 	}
     }
 
@@ -128,7 +129,7 @@ void Result::print_info(const SubgraphsOfManyGraph& smg) const
 	{
 	    ostr << std::endl << "#foundin:";
 	    for (SubgraphsOfManyGraph::const_iterator it = smg.begin(); it != smg.end(); ++it)
-		ostr << " " << wrk_graphs.names[it->first];
+		ostr << " " << wrk_graphs.names[it->get_graph()];
 	}
     }
     else
@@ -136,7 +137,7 @@ void Result::print_info(const SubgraphsOfManyGraph& smg) const
 	ostr << "support=" << supp << "; ";
 	ostr << "foundin:";
 	for (SubgraphsOfManyGraph::const_iterator it = smg.begin(); it != smg.end(); ++it)
-	    ostr << " " << wrk_graphs.names[it->first];
+	    ostr << " " << wrk_graphs.names[it->get_graph()];
     }
     ostr << std::endl;
 }
@@ -147,12 +148,14 @@ void Result::print_info(const SubgraphsOfOneGraph& sog) const
     if (!inline_view)
     {
 	ostr << "#support: " << supp << std::endl;
-	ostr << "#num subgraphs: " << sog.size() << std::endl;
+	ostr << "#num subgraphs: " << sog.size_list_all() << std::endl;
+	ostr << "#num autgroups: " << sog.size_list_autgroup() << std::endl;
     }
     else
     {
 	ostr << "support=" << supp << "; ";
-	ostr << "num subgraphs=" << sog.size() << "; ";
+	ostr << "num subgraphs=" << sog.size_list_all() << "; ";
+	ostr << "num autgroups=" << sog.size_list_autgroup() << "; ";
     }
 }
 
@@ -164,50 +167,39 @@ void Result::print_mapping(const DFSCode& dfsc, const SubgraphsOfOneGraph& sog) 
     switch (mapping_view_mode)
     {
     case MV_MAP:
-        BOOST_FOREACH(const SBG* s, sog)
+        for (const SBG* s = sog.first_all(); s; s = s->next_embedding())
         {
-	    const SBG* const S_END = s;
-            do
+            std::vector<const SBG*> chain;
+            get_chain(chain, s);
+
+            std::map<DfscVI, GraphVI> vvm;
+            for (int i = 0; i < NUM_EDGES; ++i)
             {
-		std::vector<const SBG*> chain;
-		get_chain(chain, s);
-
-                std::map<DfscVI, GraphVI> vvm;
-                for (int i = 0; i < NUM_EDGES; ++i)
-                {
-                    const EdgeCode& ec = dfsc[i];
-                    vvm[ec.vi_src()] = chain[i]->edge()->vi_src();
-                    vvm[ec.vi_dst()] = chain[i]->edge()->vi_dst();
-                }
-                ostr << "#mv: ";
-                for (std::map<DfscVI, GraphVI>::const_iterator i = vvm.begin(); i != vvm.end(); ++i)
-                    ostr << i->first << "->" << i->second << " ";
-                ostr << std::endl;
-                ostr << "#me: ";
-                for (int i = 0; i < NUM_EDGES; ++i)
-                    ostr << i << "->" << chain[i]->edge()->eid() << " ";
-                ostr << std::endl;
-
-		s = s->next_automorph();
-            } while (s != S_END);
+                const EdgeCode& ec = dfsc[i];
+                vvm[ec.vi_src()] = chain[i]->edge()->vi_src();
+                vvm[ec.vi_dst()] = chain[i]->edge()->vi_dst();
+            }
+            ostr << "#mv: ";
+            for (std::map<DfscVI, GraphVI>::const_iterator i = vvm.begin(); i != vvm.end(); ++i)
+                ostr << i->first << "->" << i->second << " ";
+            ostr << std::endl;
+            ostr << "#me: ";
+            for (int i = 0; i < NUM_EDGES; ++i)
+                ostr << i << "->" << chain[i]->edge()->eid() << " ";
+            ostr << std::endl;
         }
         break;
 
     case MV_TABLE:
-        BOOST_FOREACH(const SBG* s, sog)
+        for (const SBG* s = sog.first_all(); s; s = s->next_embedding())
         {
-	    const SBG* const S_END = s;
-            do
-            {
-		std::vector<const SBG*> chain;
-		get_chain(chain, s);
+            std::vector<const SBG*> chain;
+            get_chain(chain, s);
 
-                for (int i = 0; i < NUM_EDGES; ++i)
-                    ostr << " (" << chain[i]->edge()->vi_src() << "," << chain[i]->edge()->vi_dst() << ")"
-			 << chain[i]->edge()->eid();
-                ostr << std::endl;
-		s = s->next_automorph();
-            } while (s != S_END);
+            for (int i = 0; i < NUM_EDGES; ++i)
+                ostr << " (" << chain[i]->edge()->vi_src() << "," << chain[i]->edge()->vi_dst() << ")"
+                     << chain[i]->edge()->eid();
+            ostr << std::endl;
         }
         break;
 
@@ -215,7 +207,7 @@ void Result::print_mapping(const DFSCode& dfsc, const SubgraphsOfOneGraph& sog) 
         break;
     }
 }
-
+#endif
 
 std::ostream& usage(std::ostream& ostr)
 { 
@@ -226,6 +218,43 @@ std::ostream& usage(std::ostream& ostr)
 
 int main(int argc, char** argv)
 {
+    using namespace gSpan;
+    using namespace std;
+
+/*
+    MemAllocator ma; int S = 38;
+    Bitset bs (&ma, S);
+
+    print(std::cerr, bs, S); std::cerr << std::endl;
+
+    bs.set(0, S);
+    print(std::cerr, bs, S);
+    std::cerr << " " << bs.bit_.field << std::endl;
+
+    bs.set(1, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
+    bs.set(6, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
+    bs.set(35, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
+    bs.set(8, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
+    bs.set(15, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
+    bs.set(36, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
+    bs.set(31, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
+    bs.set(11, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
+
+    return 0;
+
+
+    std::cerr << "SBG size=" << sizeof(SBG) << std::endl;
+
+    EdgeCode ec1(1, 2, 0, 2, 2, true);
+    EdgeCode ec2(1, 3, 0, 2, 0, true);
+    EdgeCodeCmpLex lex;
+    if (lex(ec1,ec2))
+        cout << "less\n";
+    else
+        cout << "NOT less\n";
+    
+    return 0;
+*/
     // ------------------------------------------
     // parse arguments
     // ------------------------------------------
@@ -378,11 +407,14 @@ int main(int argc, char** argv)
     // ------------------------------------------
     WorkingGraphs wrk_graphs;
     create_working_graphs(wrk_graphs, vls_vl, els_el, input_graphs);
-    
-    Result result(std::cout, wrk_graphs, vlabs, elabs);
+
     minsup=minsup;
+
+    Result result(std::cout, wrk_graphs, vlabs, elabs);
+
     if (wrk_graphs.graphs.size() == 1)
 	closegraph(*wrk_graphs.graphs.back(), minsup, &result, tracedepth);
     else
 	closegraph(wrk_graphs.graphs, minsup, &result, tracedepth);
+
 }

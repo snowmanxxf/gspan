@@ -5,18 +5,77 @@
 #include <list>
 #include <queue>
 #include <algorithm>
+#include <climits>
 
 namespace gSpan
 {
+#ifdef GSPAN_WITH_STATISTICS
+    // *****************************************************************************
+    //                         Statistics
+    // *****************************************************************************
+    struct Statistics
+    {
+        unsigned int num_project_calls;
+        unsigned long num_ismin_calls;
+        unsigned long num_ismin_true_ret;
+        unsigned long num_detect_early_termin_x_f;
+        unsigned long num_detect_early_termin_x_b;
+        unsigned long num_detect_early_termin_r_f;
+        unsigned long num_detect_early_termin_r_b;
+        Statistics()
+            :num_project_calls(0),
+             num_ismin_calls(0),
+             num_ismin_true_ret(0),
+             num_detect_early_termin_x_f(0),
+             num_detect_early_termin_x_b(0),
+             num_detect_early_termin_r_f(0),
+             num_detect_early_termin_r_b(0)
+            {}
+        friend std::ostream& operator<< (std::ostream& strm, const Statistics& s);
+    };
+
+    std::ostream& operator<< (std::ostream& strm, const Statistics& s)
+    {
+        float ismin_true_ret_prc = s.num_ismin_true_ret;
+        ismin_true_ret_prc /= (float)s.num_ismin_calls;
+        int et_total =
+            s.num_detect_early_termin_x_f + s.num_detect_early_termin_x_b +
+            s.num_detect_early_termin_r_f + s.num_detect_early_termin_r_b;
+        strm << "--------- statistics ------------------------";
+        strm << "\nnum_project_calls           = " << s.num_project_calls
+             << "\nnum_ismin_calls             = " << s.num_ismin_calls
+             << "\nismin_true_ret              = " << s.num_ismin_true_ret
+             << "\nismin_true_ret%             = " << ismin_true_ret_prc*100.0f
+             << "\nnum_detect_early_termin_x_f = " << s.num_detect_early_termin_x_f
+             << "\nnum_detect_early_termin_x_b = " << s.num_detect_early_termin_x_b
+             << "\nnum_detect_early_termin_r_f = " << s.num_detect_early_termin_r_f
+             << "\nnum_detect_early_termin_r_b = " << s.num_detect_early_termin_r_b
+             << "\nnum_detect_early_termin     = " << et_total
+             << std::endl;
+        strm << "---------------------------------------------" << std::endl;
+        return strm;
+    }
+#endif
+
     // *****************************************************************************
     //                          EdgeCode
     // *****************************************************************************
-
-    struct EdgeCodeCmpDfs
+    bool EdgeCode::operator== (const EdgeCode& ec) const
     {
-	bool operator() (const EdgeCode& ec1, const EdgeCode& ec2) const __attribute__((noinline));
-    };
+        return !
+            ((vi_src()^ec.vi_src()) | (vi_dst()^ec.vi_dst()) |
+             (vl_src()^ec.vl_src()) | (vl_dst()^ec.vl_dst()) | (el()^ec.el()));
+    }
 
+    std::ostream& operator<<(std::ostream& out, const EdgeCode& ec)
+    {
+        return out<<"("<<ec.vi_src()<<","<<ec.vi_dst()<<", "<<ec.vl_src()<<","<<ec.el()<<","<<ec.vl_dst()<<")"
+                  << (ec.is_forward() ? " fwd" : " bck");
+    }
+
+    // *****************************************************************************
+    //                          EdgeCodeCmpDfs
+    // *****************************************************************************
     bool EdgeCodeCmpDfs::operator() (const EdgeCode& ec1, const EdgeCode& ec2) const
     {
         bool ec1_f = ec1.is_forward();
@@ -24,54 +83,71 @@ namespace gSpan
 
         if (!ec1_f && ec2_f)
             return true;
-	else if (!ec1_f && !ec2_f)
-	{
-	    if (ec1.vi_dst()  < ec2.vi_dst())
-		return true;
-	    else if (ec1.vi_dst() == ec2.vi_dst() && ec1.el() < ec2.el())
-		return true;
-	    else
-		return false;
-	}
-	else if (ec1_f && ec2_f)
-	{
-	    if (ec1.vi_src() > ec2.vi_src())
-		return true;
-	    else if (ec1.vi_src() == ec2.vi_src() && ec1.vl_src()  < ec2.vl_src())
-		return true;
-	    else if (ec1.vi_src() == ec2.vi_src() && ec1.vl_src() == ec2.vl_src() && ec1.el() < ec2.el())
-		return true;
-	    else if (ec1.vi_src() == ec2.vi_src() && ec1.vl_src() == ec2.vl_src() && ec1.el() == ec2.el() && ec1.vl_dst() < ec2.vl_dst())
-		return true;
-	    else
-		return false;
-	}
-	else
-	    return false;
+        else if (!ec1_f && !ec2_f)
+        {
+            if (ec1.vi_dst()  < ec2.vi_dst())
+                return true;
+            else if (ec1.vi_dst() == ec2.vi_dst() && ec1.el() < ec2.el())
+                return true;
+            else
+                return false;
+        }
+        else if (ec1_f && ec2_f)
+        {
+            if (ec1.vi_src() > ec2.vi_src())
+                return true;
+            else if (ec1.vi_src() == ec2.vi_src() && ec1.vl_src()  < ec2.vl_src())
+                return true;
+            else if (ec1.vi_src() == ec2.vi_src() && ec1.vl_src() == ec2.vl_src() &&
+                     ec1.el() < ec2.el())
+                return true;
+            else if (ec1.vi_src() == ec2.vi_src() && ec1.vl_src() == ec2.vl_src() &&
+                     ec1.el() == ec2.el() && ec1.vl_dst() < ec2.vl_dst())
+                return true;
+            else
+                return false;
+        }
+        else
+            return false;
     }
 
-    struct EdgeCodeCmpLex
-    {
-	bool operator() (const EdgeCode& ec1, const EdgeCode& ec2) const __attribute__((noinline));
-    };
-
+    // *****************************************************************************
+    //                          EdgeCodeCmpLex
+    // *****************************************************************************
     bool EdgeCodeCmpLex::operator() (const EdgeCode& ec1, const EdgeCode& ec2) const
     {
-#ifdef USE_ASM
+#if defined(USE_ASM)
+#if defined(__x86_64__)
+        // 64 bit
         uint8_t res;
         asm (
-            "movw 8(%1), %%ax\n\t"
-            "subw 8(%2), %%ax\n\t"
+            "movq 0(%1), %%rax\n\t"
+            "subq 0(%2), %%rax\n\t"
+            "movl 8(%1), %%eax\n\t"
+            "sbbl 8(%2), %%eax\n\t"
+            "setc %0"
+            : "=r" (res)
+            : "r" (ec1.x_), "r" (ec2.x_)
+            : "rax"
+            );
+        return res;
+#else
+        // 32 bit
+        uint8_t res;
+        asm (
+            "movl 0(%1), %%eax\n\t"
+            "subl 0(%2), %%eax\n\t"
             "movl 4(%1), %%eax\n\t"
             "sbbl 4(%2), %%eax\n\t"
-            "movl (%1), %%eax\n\t"
-            "sbbl (%2), %%eax\n\t"
+            "movl 8(%1), %%eax\n\t"
+            "sbbl 8(%2), %%eax\n\t"
             "setc %0"
             : "=r" (res)
             : "r" (ec1.x_), "r" (ec2.x_)
             : "eax"
             );
         return res;
+#endif
 #else
         if (ec1.vi_src() < ec2.vi_src())
             return true;
@@ -96,31 +172,9 @@ namespace gSpan
 #endif
     }
 
-
-    bool EdgeCode::operator== (const EdgeCode& ec) const
-    {
-        return !
-            ((vi_src()^ec.vi_src()) | (vi_dst()^ec.vi_dst()) |
-             (vl_src()^ec.vl_src()) | (vl_dst()^ec.vl_dst()) | (el()^ec.el()));
-    }
-
-    std::ostream& operator<<(std::ostream& out, const EdgeCode& ec)
-    {
-        return out<<"("<<ec.vi_src()<<","<<ec.vi_dst()<<", "<<ec.vl_src()<<","<<ec.el()<<","<<ec.vl_dst()<<")"
-                  << (ec.is_forward() ? " fwd" : " bck");
-    }
-
     // *****************************************************************************
     //                          DFSCode
     // *****************************************************************************
-    DfscVI max_vertex(const DFSCode& dfsc)
-    {
-        DfscVI m = 0;
-        for (DFSCode::const_iterator i = dfsc.begin(); i != dfsc.end(); ++i)
-            m = std::max(m, std::max(i->vi_src(), i->vi_dst()));
-        return m;
-    }
-
     std::ostream& operator<<(std::ostream& out, const DFSCode& dfsc)
     {
         std::copy(dfsc.begin(), dfsc.end(), std::ostream_iterator<EdgeCode>(out, "\n"));
@@ -130,7 +184,6 @@ namespace gSpan
     // *****************************************************************************
     //                          RMPath
     // *****************************************************************************
-
     typedef std::vector<int, STL_Allocator<int> >	RMPath_I_EdgeCode;
     typedef std::vector<DfscVI, STL_Allocator<DfscVI> >	DfscVI_Vertices;
 
@@ -229,34 +282,200 @@ namespace gSpan
         return out;
     }
 
+    // *****************************************************************************
+    //                          Bitset
+    // *****************************************************************************
+    Bitset::Bitset(MemAllocator* ma, size_type size)
+    {
+        if (use_bitfield(size))
+            bit_.field = Chunk(0);
+        else
+        {
+            bit_.ptr = new (ma->alloc_array<Chunk>(num_chanks(size))) Chunk;
+            std::fill(bit_.ptr, bit_.ptr + num_chanks(size), Chunk(0));
+        }
+    }
 
+    Bitset::Bitset(MemAllocator* ma, size_type size, const Bitset& bf)
+    {
+        if (use_bitfield(size))
+            bit_.field = bf.bit_.field;
+        else
+        {
+            bit_.ptr = new (ma->alloc_array<Chunk>(num_chanks(size))) Chunk;
+            std::copy(bf.bit_.ptr, bf.bit_.ptr + num_chanks(size), bit_.ptr);
+        }
+    }
+
+    Bitset::~Bitset()
+    {
+        assert(! bit_.ptr);
+    }
+
+    void Bitset::free_resource(MemAllocator* ma, size_type size)
+    {
+        if (! use_bitfield(size))
+            ma->dealloc_array(bit_.ptr, num_chanks(size));
+        bit_.ptr = 0;
+    }
+
+    bool Bitset::test(size_type pos, size_type size) const
+    {
+        assert(pos < size);
+        if (use_bitfield(size))
+        {
+            Chunk mask = Chunk(1U) << pos;
+            return Chunk(0U) != (bit_.field & mask);
+        }
+
+        size_type i = pos / num_chunkbits();
+        Chunk mask = Chunk(1U) << (pos % num_chunkbits());
+        return Chunk(0U) != (bit_.ptr[i] & mask);
+    }
+
+    bool Bitset::set(size_type pos, size_type size)
+    {
+        assert(pos < size);
+        if (use_bitfield(size))
+        {
+            Chunk mask = Chunk(1U) << pos;
+            bool oldval = Chunk(0U) != (bit_.field & mask);
+            bit_.field |= mask;
+            return oldval;
+        }
+
+        size_type i = pos / num_chunkbits();
+        Chunk mask = Chunk(1U) << (pos % num_chunkbits());
+        bool oldval = Chunk(0U) != (bit_.ptr[i] & mask);
+        bit_.ptr[i] |= mask;
+        return oldval;
+    }
+
+    bool Bitset::clear(size_type pos, size_type size)
+    {
+        assert(pos < size);
+        if (use_bitfield(size))
+        {
+            Chunk mask = Chunk(1U) << pos;
+            bool oldval = Chunk(0U) != (bit_.field & mask);
+            bit_.field &= ~mask;
+            return oldval;
+        }
+
+        size_type i = pos / num_chunkbits();
+        Chunk mask = Chunk(1U) << (pos % num_chunkbits());
+        bool oldval = Chunk(0U) != (bit_.ptr[i] & mask);
+        bit_.ptr[i] &= ~mask;
+        return oldval;
+    }
+
+    bool Bitset::all_set(size_type size) const
+    {
+        for (Bitset::size_type i = 0; i < size; ++i)
+            if (!test(i, size))
+                return false;
+        return true;
+    }
+
+    bool Bitset::is_equal(const Bitset& bf1, const Bitset& bf2, size_type size)
+    {
+        assert(bf1.use_bitfield(size) == bf2.use_bitfield(size));
+        if (bf1.use_bitfield(size))
+            return bf1.bit_.field == bf2.bit_.field;
+        else
+        {
+            size_type n = num_chanks(size);
+            for (size_type i = 0; i < n; ++i)
+                if (bf1.bit_.ptr[i] != bf2.bit_.ptr[i])
+                    return false;
+            return true;
+        }
+    }
+    
+    void print(std::ostream& out, const Bitset& bf, Bitset::size_type size)
+    {
+        for (Bitset::size_type i = 0; i < size; ++i)
+            out << int(bf.test(i, size));
+    }
+
+    
     // *****************************************************************************
     //                          SBGSimple
     // *****************************************************************************
     class SBGSimple : public SBGBase<SBGSimple>
     {
-	friend class SBGCreator<SBGSimple>;
-	SBGSimple(const Graph::Edge* e, const Graph* g)
-	    :SBGBase<SBGSimple>(e, g)
+        friend class SBGCreator<SBGSimple>;
+
+	SBGSimple(MemAllocator* ma, const Graph::Edge* e, const Graph* g)
+	    :SBGBase<SBGSimple>(ma, e, g), edge_array_(0)
 	    {}
 
-	SBGSimple(const Graph::Edge* e, const SBGSimple* s)
-	    :SBGBase<SBGSimple>(e, s)
+	SBGSimple(MemAllocator* ma, const Graph::Edge* e, const SBGSimple* s)
+	    :SBGBase<SBGSimple>(ma, e, s), edge_array_(0)
 	    {}
+
+        mutable const Graph::Edge** edge_array_;
+    public:
+        const Graph::Edge* find_edge(std::size_t depth, MemAllocator*) const;
+        void free_edge_array(MemAllocator* ma)
+            { if (edge_array_) { ma->dealloc_array(edge_array_, num_edges()); edge_array_ = 0; } }
     };
 
+    const Graph::Edge* SBGSimple::find_edge(std::size_t depth, MemAllocator* ma) const
+    {
+        if (!edge_array_)
+        {
+            int i = num_edges();
+            edge_array_ = ma->alloc_array<const Graph::Edge*>(i);
+
+            const SBGSimple* s = this;
+            do
+            {
+                edge_array_[--i] = s->edge();
+                s = s->parent();
+            } while (s);
+            
+        }
+        return edge_array_[depth - 1];
+    }
+
+    // *****************************************************************************
+    //                          specialization SBGCreator
+    //                               for SBGSimple
+    // *****************************************************************************
+    template<>
+    class SBGCreator<SBGSimple>
+    {
+	MemAllocator*	ma_;
+	FixedAllocator*	sbg_alloc_;
+    public:
+	explicit SBGCreator(MemAllocator* ma)
+	    :ma_(ma), sbg_alloc_(ma->get_fixed_allocator(sizeof(SBGSimple))) {}
+	MemAllocator* get_mem_allocator() const { return ma_; }
+	SBGSimple* new_sbg(const Graph::Edge* e, const Graph* g)
+            { return new (sbg_alloc_->allocate()) SBGSimple(ma_, e, g); }
+	SBGSimple* new_sbg(const Graph::Edge* e, const SBGSimple* s)
+            { return new (sbg_alloc_->allocate()) SBGSimple(ma_, e, s); }
+	void delete_sbg(SBGSimple*);
+    };
+
+    void SBGCreator<SBGSimple>::delete_sbg(SBGSimple* s)
+    {
+        s->free_bitsets(ma_);
+        s->free_edge_array(ma_);
+	s->~SBGSimple();
+	sbg_alloc_->deallocate(s);
+    }
 
     // *****************************************************************************
     //                          SBG
     // *****************************************************************************
-
     void SBG::init_dfsc_to_graph_array1(MemAllocator* mem_alloc)
     {
 	vi_dfsc_to_graph_ = mem_alloc->alloc_array<GraphVI>(2);
 	vi_dfsc_to_graph_[0] = edge()->vi_src();
         vi_dfsc_to_graph_[1] = edge()->vi_dst();
     }
-
 
     void SBG::init_dfsc_to_graph_array2(MemAllocator* mem_alloc)
     {
@@ -269,6 +488,13 @@ namespace gSpan
         vi_dfsc_to_graph_[vi_dst_dfsc_] = edge()->vi_dst();
     }
 
+    void SBG::insert_to_automorph_list(SBG* pos, SBG* s)
+    {
+        pos->automorph_next_->automorph_prev_ = s;
+        s->automorph_next_ = pos->automorph_next_;
+        s->automorph_prev_ = pos;
+        pos->automorph_next_ = s;
+    }
 
     //
     // array of the dfsc VI, indexed by the graph VI
@@ -297,41 +523,15 @@ namespace gSpan
     }
 
 
-    void SBG::insert_to_automorph_list(SBG* pos, SBG* s)
-    {
-        pos->automorph_next_->automorph_prev_ = s;
-        s->automorph_next_ = pos->automorph_next_;
-        s->automorph_prev_ = pos;
-        pos->automorph_next_ = s;
-    }
-
-    bool operator== (const SBG& s1, const SBG& s2)
-    {
-        assert(s1.get_graph() == s2.get_graph());
-
-        if (s1.sum_ != s2.sum_)
-            return false;
-        unsigned int n = s1.get_graph()->num_vertices();
-        for (unsigned int i = 0; i < n; ++i)
-	{
-	    if (s1.ev_array()[i].e_in_sbg != s2.ev_array()[i].e_in_sbg)
-		return false;
-	}
-        return true;
-    }
-
     std::ostream& operator<<(std::ostream& out, const SBG& sbg)
     {
         std::vector<const SBG*> chain;
         get_chain(chain, &sbg);
-
         out << "sbg:";
         for (std::size_t i = 0; i < chain.size(); ++i)
-            out << " " << chain[i]->edge();	
-        //out << " at address=" << &sbg << " parent=" << sbg.parent();
+            out << " " << chain[i]->edge();
         return out;
     }
-
 
     void get_chain(std::vector<const SBG*>& chain, const SBG* sbg)
     {
@@ -344,304 +544,6 @@ namespace gSpan
             s = s->parent();
         } while (s);
     }
-
-    // *****************************************************************************
-    //                          SBGCreator
-    // *****************************************************************************
-    template<class S>
-    class SBGCreator;
-
-    // ---- creator SBGSimple ------------------
-    template<>
-    class SBGCreator<SBGSimple>
-    {
-	MemAllocator*	mem_alloc_;
-	FixedAllocator*	sbg_alloc_;
-    public:
-	explicit SBGCreator(MemAllocator* mem_alloc)
-	    :mem_alloc_(mem_alloc), sbg_alloc_(mem_alloc->get_fixed_allocator(sizeof(SBGSimple))) {}
-
-	MemAllocator* mem_allocator() const { return mem_alloc_; }
-
-	SBGSimple* new_sbg(const Graph::Edge* e, const Graph* g);
-	SBGSimple* new_sbg(const Graph::Edge* e, const SBGSimple* s);
-	void delete_sbg(SBGSimple*);
-    };
-
-    // root sbg
-    SBGSimple* SBGCreator<SBGSimple>::new_sbg(const Graph::Edge* e, const Graph* g)
-    {
-	SBGSimple* p = new (sbg_alloc_->allocate()) SBGSimple(e, g);
-	p->init_ev_array1(mem_alloc_);
-	return p;
-    }
-
-    // other sbg
-    SBGSimple* SBGCreator<SBGSimple>::new_sbg(const Graph::Edge* e, const SBGSimple* s)
-    {
-	SBGSimple* p = new (sbg_alloc_->allocate()) SBGSimple(e, s);
-	p->init_ev_array2(mem_alloc_);
-	return p;
-    }
-
-    void SBGCreator<SBGSimple>::delete_sbg(SBGSimple* p)
-    {
-	p->free_ev_array(mem_alloc_);
-	p->~SBGSimple();
-	sbg_alloc_->deallocate(p);
-    }
-
-    // ---- creator SBG ------------------------
-    template<>
-    class SBGCreator<SBG>
-    {
-	MemAllocator*	mem_alloc_;
-	FixedAllocator*	sbg_alloc_;
-    public:
-	explicit SBGCreator(MemAllocator* mem_alloc)
-	    :mem_alloc_(mem_alloc), sbg_alloc_(mem_alloc->get_fixed_allocator(sizeof(SBG))) {}
-
-	MemAllocator*	mem_allocator() const { return mem_alloc_; }
-
-	SBG* new_sbg(const Graph::Edge* e, const Graph* g);
-	SBG* new_sbg(const Graph::Edge* e, const SBG* s, const EdgeCode& ec);
-	void delete_sbg(SBG*);
-    };
-
-
-    SBG* SBGCreator<SBG>::new_sbg(const Graph::Edge* e, const Graph* g)
-    {
-	SBG* p = new (sbg_alloc_->allocate()) SBG(e, g);
-	p->init_ev_array1(mem_alloc_);
-	p->init_dfsc_to_graph_array1(mem_alloc_);
-	return p;
-    }
-
-
-    SBG* SBGCreator<SBG>::new_sbg(const Graph::Edge* e, const SBG* s, const EdgeCode& ec)
-    {
-	//PREFETCH(*s);
-	SBG* p = new (sbg_alloc_->allocate()) SBG(e, s, ec);
-	p->init_ev_array2(mem_alloc_);
-	p->init_dfsc_to_graph_array2(mem_alloc_);
-	return p;
-    }
-
-
-    void SBGCreator<SBG>::delete_sbg(SBG* p)
-    {
-	p->free_dfsc_to_graph_array(mem_alloc_);
-	p->free_ev_array(mem_alloc_);
-	p->~SBG();
-	sbg_alloc_->deallocate(p);
-    }
-
-
-    // *****************************************************************************
-    //                          SBG_List
-    //                          its owner
-    // *****************************************************************************
-    template<class S>
-    class SBG_List
-    {
-	S* sbg_list_;
-	std::size_t size_;
-	SBGCreator<S>* sbg_creator_;
-    public:
-	typedef S SBG_Type;
-
-	SBG_List(SBGCreator<S>* sbg_creator)
-	    :sbg_list_(0), size_(0), sbg_creator_(sbg_creator) {}
-
-	SBG_List(const SBG_List& r)
-	    :sbg_list_(0), size_(0), sbg_creator_(r.sbg_creator_) { assert(r.empty()); }
-
-	~SBG_List() { clear(); }
-
-	void insert(S* s);
-	void clear();
-	bool empty() const			{ return !sbg_list_; }
-	std::size_t size() const		{ return size_; }
-	S* get_first() const			{ return sbg_list_; }
-	SBGCreator<S>* sbg_creator() const	{ return sbg_creator_; }
-    };
-
-    template<class S>
-    void SBG_List<S>::insert(S* s)
-    {
-	assert(! s->next_embedding_);
-	s->next_embedding_ = sbg_list_;
-	sbg_list_ = s;
-	++size_;
-    }
-
-
-    template<class S>
-    void SBG_List<S>::clear()
-    {
-	S* s = sbg_list_;
-	S* next = 0;
-	while (s)
-	{
-	    next = s->next_embedding_;
-	    sbg_creator_->delete_sbg(s);
-	    s = next;
-	}
-	sbg_list_ = 0;
-	size_ = 0;
-    }
-
-    template<class S>
-    std::ostream& operator<<(std::ostream& out, const SBG_List<S>& sbgs)
-    {
-	for (const S* s = sbgs.get_first(); s; s = s->next_embedding())
-	    out << '\t' << *s << std::endl;
-	return out;
-    }
-
-    // *****************************************************************************
-    //                          SubgraphsOfOneGraph
-    // *****************************************************************************
-
-    void SubgraphsOfOneGraph::calc_support_v(const SBG* slist) const
-    {
-        int support = std::numeric_limits<int>::max();
-	const GraphVI n_ver_g = slist->get_graph()->num_vertices();
-	const DfscVI  n_ver_s = slist->num_vertices();
-
-        for (DfscVI vi = 0; vi < n_ver_s; ++vi)
-	{
-            int n = 0;
-            std::vector<bool> vvg(n_ver_g, false);
-	    for (const SBG* s = slist; s; s = s->next_embedding())
-	    {
-		GraphVI graph_vi = s->get_dfsc_to_graph_v()[vi];
-		
-		assert(graph_vi >= 0 && graph_vi < n_ver_g);
-		
-		if (! vvg[graph_vi])
-                {
-                    ++n;
-                    vvg[graph_vi] = true;
-                }
-	    }
-            if (n < support)
-                support = n;
-	}
-	
-	assert(support > 0);
-
-        support_ = support;
-        support_valid_ = true;
-    }
-
-    void SubgraphsOfOneGraph::insert_sbgs_uniq_ptr(SBGS_PTR& cont, SBG* s)
-    {
-        BOOST_FOREACH(SBG* sbg, cont)
-        {
-            if (*sbg == *s)
-            {
-                SBG::insert_to_automorph_list(sbg, s);
-                return;
-            }
-        }
-        cont.push_back(s);
-    }
-
-
-    bool SubgraphsOfOneGraph::is_equal_occurrence(const SubgraphsOfOneGraph& parent) const
-    {
-	unsigned int n = 0;
-        for (const_iterator i_gr = parent.begin(); i_gr != parent.end(); ++i_gr)
-        {
-            const SBG* s = *i_gr;
-            const SBG* const S_END = s;
-            
-            do
-            {
-                if (sbg_parents_.count(s) > 0)
-                {
-                    ++n;
-                    break;
-                }
-                s = s->next_automorph();
-            } while(s != S_END);
-        }
-
-        return n == parent.size();
-    }
-
-
-    void SubgraphsOfOneGraph::insert(SBG* s)
-    {
-        sbg_parents_.insert(s->parent());
-        insert_sbgs_uniq_ptr(sbgs_uniq_ptr_, s);
-    }
-
-    // *****************************************************************************
-    //                          SubgraphsOfManyGraph
-    // *****************************************************************************
-
-    bool SubgraphsOfManyGraph::is_equal_occurrence(const SubgraphsOfManyGraph& embd) const
-    {
-	return 0;
-    }
-
-    void SubgraphsOfManyGraph::insert(SBG* s)
-    {
-	MemAllocator* mem_alloc = g_sog_.get_allocator().get_mem_alloc();
-	G_SOG::value_type val(s->get_graph(), SOG(mem_alloc));
-	std::pair<iterator,bool> pr = g_sog_.insert(val);
-	SOG& sog = pr.first->second;
-        std::size_t old_num_sbgs_uniq = sog.size();
-        sog.insert(s);
-        int new_num_sbgs_uniq = sog.size();
-        size_ += new_num_sbgs_uniq - old_num_sbgs_uniq;
-    }
-
-    // *****************************************************************************
-    //                          Embeddings
-    // *****************************************************************************
-    template<class SubgraphsOfGraph>
-    class Embeddings : public SBG_List<SBG>
-    {
-	typedef SBG_List<SBG> Base;
-	Base& base() { return *this; }
-	const Base& base() const { return *this; }
-	SubgraphsOfGraph sg_;
-    public:
-	typedef SBG SBG_Type;
-
-	Embeddings(SBGCreator<SBG>* creator)
-	    :SBG_List<SBG>(creator),
-	     sg_(creator->mem_allocator())
-	    {}
-	
-	int support() const	{ return sg_.support(base().get_first()); }
-	void insert(SBG* s)	{ base().insert(s); sg_.insert(s); }
-	const SubgraphsOfGraph& container() const { return sg_; }
-
-	SBGCreator<SBG_Type>* sbg_creator() const { return base().sbg_creator(); }
-
-	template<class T>
-	friend std::ostream& operator<<(std::ostream& out, const Embeddings<T>& sbg_collection);
-    };
-
-    template<class SubgraphsOfGraph>
-    std::ostream& operator<<(std::ostream& out, const Embeddings<SubgraphsOfGraph>& embd)
-    {
-	out << static_cast<const SBG_List<SBG>&>(embd);
-	out << "\tsupport=" << embd.support()
-	    << " size=" << embd.size()
-	    << " num_uniq=" << embd.sg_.size()
-	    << std::endl;
-	return out;
-    }
-
-    template<class SG>
-    inline bool is_equal_occurrence(const Embeddings<SG>& new_embd, const Embeddings<SG>& embd)
-    { return new_embd.container().is_equal_occurrence(embd.container()); }
-
 
     // *****************************************************************************
     //                          VertexRMPathStatus
@@ -681,155 +583,299 @@ namespace gSpan
             status_[dfsc_to_graph_v[*it]] = it < rmpath.rmp_end();
         }
     }
+    
+    // *****************************************************************************
+    //                          SubgraphsOfOneGraph
+    // *****************************************************************************
+    void SubgraphsOfOneGraph::calc_support() const
+    {
+        int support = std::numeric_limits<int>::max();
+        const GraphVI n_ver_g = first_all()->get_graph()->num_vertices();
+	const DfscVI  n_ver_s = first_all()->num_vertices();
+
+        for (DfscVI vi = 0; vi < n_ver_s; ++vi)
+	{
+            int n = 0;
+            std::vector<bool> vvg(n_ver_g, false);
+	    for (const SBG* s = first_all(); s; s = s->next_embedding())
+	    {
+		GraphVI graph_vi = s->get_dfsc_to_graph_v()[vi];
+		
+		assert(graph_vi >= 0 && graph_vi < n_ver_g);
+		
+		if (! vvg[graph_vi])
+                {
+                    ++n;
+                    vvg[graph_vi] = true;
+                }
+	    }
+            if (n < support)
+                support = n;
+	}
+
+	assert(support > 0);
+        support_ = support;
+    }
+
+
+    void SubgraphsOfOneGraph::insert(SBG* s)
+    {
+        list_sbg_all_.insert(s);
+        
+        SBG* sbg = list_sbg_autgroup_.first();
+        while (sbg)
+        {
+            if (*sbg == *s)
+            {
+                SBG::insert_to_automorph_list(sbg, s);
+                //au = true;
+                break;
+            }
+            sbg = sbg->next_automorph_group();
+        }
+
+        if (!sbg)
+            list_sbg_autgroup_.insert(s);
+    }
+
+    bool has_parent(const SubgraphsOfOneGraph& sog, const SBG* par)
+    {
+        for (const SBG* s = sog.first_all(); s; s = s->next_embedding())
+            if (s->parent() == par)
+                return true;
+        return false;
+    }
+
+    bool SubgraphsOfOneGraph::is_equal_occurence(const SubgraphsOfOneGraph& parent) const
+    {
+        unsigned int n = 0;
+        for (const SBG* s = parent.first_autgroup(); s; s = s->next_automorph_group())
+        {
+            const SBG* aut = s;
+            do
+            {
+                if (has_parent(*this, aut))
+                {
+                    ++n;
+                    break;
+                }
+                aut = aut->next_automorph();
+            } while (aut != s);
+        }
+        return n == parent.size_list_autgroup();
+    }
+
+
+    // *****************************************************************************
+    //                          SubgraphsOfManyGraph
+    // *****************************************************************************
+    SubgraphsOfManyGraph::SubgraphsOfManyGraph(SBGCreator<SBG>* sbg_creator)
+        :fa_(sbg_creator->get_mem_allocator()->get_fixed_allocator(sizeof(SOG))),
+         sbg_creator_(sbg_creator),
+         size_list_all_(0)
+    {
+    }
+    
+
+    SubgraphsOfManyGraph::~SubgraphsOfManyGraph()
+    {
+        iterator it = set_.begin();
+        while (it != set_.end())
+        {
+            SOG* p = &*it;
+            set_.erase(it);
+            p->~SOG();
+            fa_->deallocate(p);
+            ++it;
+        }
+    }
+
+    void SubgraphsOfManyGraph::insert(SBG* s)
+    {
+        ++size_list_all_;
+        SOGSet::insert_commit_data insert_data;
+        std::pair<iterator,bool> r = set_.insert_check(s->get_graph(), SOG::CompareKey(), insert_data);
+        if(r.second)
+            r.first = set_.insert_commit(*new (fa_->allocate()) SOG(s->get_graph(), sbg_creator_), insert_data);
+        r.first->insert(s);
+    }
+
+    bool SubgraphsOfManyGraph::is_equal_occurence(const SubgraphsOfManyGraph& parent) const
+    {
+        for (const_iterator it = begin(); it != end(); ++it)
+        {
+            const SOG& node = *parent.set_.find(it->get_graph(), SOG::CompareKey());
+            if (! it->is_equal_occurence(node))
+                return false;
+        }
+        return true;
+    }
 
     // *****************************************************************************
     //                          Extension
     // *****************************************************************************
-    template<class SG, class Cmp>
-    class Extension : public std::map<EdgeCode,
-				      Embeddings<SG>,
-				      Cmp,
-				      STL_Allocator<std::pair<EdgeCode, Embeddings<SG> > > >
-    {
-	typedef STL_Allocator<std::pair<EdgeCode, Embeddings<SG> > > MapAlloc;
-	typedef std::map<EdgeCode, Embeddings<SG>, Cmp, MapAlloc> Base;
-	Base& base() { return *this; }
-	SBGCreator<SBG>* sbg_creator_;
-    public:
-	explicit
-	Extension(MemAllocator* mem_alloc, SBGCreator<SBG>* sbg_creator)
-	    :Base(Cmp(), MapAlloc(mem_alloc)),
-	     sbg_creator_(sbg_creator) {}
 
+    // SG       : SubgraphsOfOneGraph or SubgraphsOfManyGraph
+    // Compare  : EdgeCodeCmpDfs or EdgeCodeCmpLex
+    template<class SG, class Compare>   
+    class Extension : public Set<SetNode<EdgeCode, SG, Compare>, false, void>
+    {
+        typedef SetNode<EdgeCode, SG, Compare> Node;
+        typedef Set<Node, false, void> Base;
+
+        FixedAllocator* fa_;
+        SBGCreator<SBG>* sbg_creator_;
+    public:
+        explicit Extension(SBGCreator<SBG>* sbg_creator)
+            :fa_(sbg_creator->get_mem_allocator()->get_fixed_allocator(sizeof(Node))),
+             sbg_creator_(sbg_creator) {}
+        ~Extension();
+        
         void insert(const EdgeCode& ec, const Graph::Edge* e, const Graph* g);
-        void insert(const EdgeCode& ec, const Graph::Edge* e, const SBG* s);	
+        void insert(const EdgeCode& ec, const Graph::Edge* e, const SBG* s);
     };
 
-    template<class SG, class Cmp>
-    void Extension<SG,Cmp>::insert(const EdgeCode& ec, const Graph::Edge* e, const Graph* g)
+    template<class SG, class Compare>
+    Extension<SG, Compare>::~Extension()
     {
-	typename Base::value_type val(ec, Embeddings<SG>(sbg_creator_));
-	std::pair<typename Base::iterator,bool> pr = base().insert(val);
-	pr.first->second.insert(sbg_creator_->new_sbg(e, g));
+        typename Base::iterator it = this->begin();
+        while (it != this->end())
+        {
+            Node* p = &*it;
+            this->erase(it++);
+            p->~Node();
+            fa_->deallocate(p);
+        }
     }
 
-    template<class SG, class Cmp>
-    void Extension<SG,Cmp>::insert(const EdgeCode& ec, const Graph::Edge* e, const SBG* s)
+    template<class SG, class Compare>        
+    void Extension<SG, Compare>::insert(const EdgeCode& ec, const Graph::Edge* e, const Graph* g)
     {
-	typename Base::value_type val(ec, Embeddings<SG>(sbg_creator_));
-	std::pair<typename Base::iterator,bool> pr = base().insert(val);
-	pr.first->second.insert(sbg_creator_->new_sbg(e, s, ec));
+        typename Base::insert_commit_data insert_data;
+        std::pair<typename Base::iterator,bool> r = this->insert_check(ec, typename Node::CompareKey(), insert_data);
+        if(r.second)
+            r.first = this->insert_commit(*new (fa_->allocate()) Node(ec, sbg_creator_), insert_data);
+        r.first->insert(sbg_creator_->new_sbg(e, g));
     }
 
-    template<class SG, class Cmp>
-    std::ostream& operator<<(std::ostream& out, const Extension<SG,Cmp>& ext)
+    template<class SG, class Compare>
+    void Extension<SG, Compare>::insert(const EdgeCode& ec, const Graph::Edge* e, const SBG* s)
     {
-	typedef typename Extension<SG,Cmp>::const_iterator I;
-	for (I it = ext.begin(); it != ext.end(); ++it)
-	    out << it->first << "\n" << it->second;
-	return out;
+        typename Base::insert_commit_data insert_data;
+        std::pair<typename Base::iterator,bool> r = this->insert_check(ec, typename Node::CompareKey(), insert_data);
+        if(r.second)
+            r.first = this->insert_commit(*new (fa_->allocate()) Node(ec, sbg_creator_), insert_data);
+        r.first->insert(sbg_creator_->new_sbg(e, s, ec));
+    }
+
+    template<class SG, class Compare>
+    inline bool is_equal_occurrence(const SetNode<EdgeCode, SG, Compare>& ext_sg, const SG& sg_parent)
+    {
+        return ext_sg.is_equal_occurence(sg_parent);
     }
 
     // *****************************************************************************
     //                          MinimalExtension
-    // *****************************************************************************    
-    class MinimalExtension : public SBG_List<SBGSimple>
+    // *****************************************************************************
+    class MinimalExtension
     {
-	EdgeCode ec_;
-	SBG_List<SBGSimple>& base() { return *this; }
-	void insert(const EdgeCode& ec, SBGSimple* s);
     public:
-	explicit
-	MinimalExtension(SBGCreator<SBGSimple>* sbg_creator)
-	    :SBG_List<SBGSimple>(sbg_creator) {}
-	
-        void insert(const EdgeCode& ec, const Graph::Edge* e, const Graph* g)
-	    { insert(ec, base().sbg_creator()->new_sbg(e, g)); }
+        typedef typename Make_SBG_List_Embedding<SBGSimple>::Type List;
 
-	void insert(const EdgeCode& ec, const Graph::Edge* e, const SBGSimple* s)
-	    { insert(ec, base().sbg_creator()->new_sbg(e, s)); }
+        explicit MinimalExtension(SBGCreator<SBGSimple>* sbg_creator) :list_(sbg_creator), sbg_creator_(sbg_creator)  {}
+        const SBGSimple* first() const  { return list_.first(); }  
+        bool empty() const              { return list_.empty(); }
+        void insert(const EdgeCode& ec, const Graph::Edge* e, const Graph* g);
+        void insert(const EdgeCode& ec, const Graph::Edge* e, const SBGSimple* s);
+        const EdgeCode& get_ec() const  { return ec_; }
+        List& get_list()                { return list_; }
 
-	const EdgeCode& get_ec() const { return ec_; }
+        MinimalExtension* next;
+    private:
+        EdgeCode ec_;
+        List list_;
+        SBGCreator<SBGSimple>* sbg_creator_;
     };
 
-    void MinimalExtension::insert(const EdgeCode& ec, SBGSimple* s)
+
+    void MinimalExtension::insert(const EdgeCode& ec, const Graph::Edge* e, const Graph* g)
     {
-	if (base().empty())
-	{
-	    ec_ = ec;
-	    base().insert(s);
-	}
-	else if (ec == ec_)
-	{
-	    // equal
-	    base().insert(s);
-	}
-	else
-	{
-	    EdgeCodeCmpDfs cmp;
-	    if (cmp(ec, ec_))
-	    {
-		// lesser
-		ec_ = ec;
-		base().clear();
-		base().insert(s);
-	    }
-	    else
-	    {
-		// greater
-		base().sbg_creator()->delete_sbg(s);
-	    }
-	}
+        EdgeCodeCmpDfs cmp;
+        if (! empty() && cmp(ec_, ec))
+            return;
+        SBGSimple* p = sbg_creator_->new_sbg(e, g);
+        if (empty())
+        {
+            ec_ = ec;
+            list_.insert(p);
+        }
+        else if (ec_ == ec)
+            list_.insert(p);
+        else
+        {
+            assert(cmp(ec, ec_));
+            ec_ = ec;
+            list_.clear();
+            list_.insert(p);            
+        }
+    }
+
+    void MinimalExtension::insert(const EdgeCode& ec, const Graph::Edge* e, const SBGSimple* s)
+    {
+        EdgeCodeCmpDfs cmp;
+        if (! empty() && cmp(ec_, ec))
+            return;
+        SBGSimple* p = sbg_creator_->new_sbg(e, s);
+        if (empty())
+        {
+            ec_ = ec;
+            list_.insert(p);
+        }
+        else if (ec_ == ec)
+            list_.insert(p);
+        else
+        {
+            assert(cmp(ec, ec_));
+            ec_ = ec;
+            list_.clear();
+            list_.insert(p);            
+        }
     }
 
 
-#ifdef GSPAN_WITH_STATISTICS
     // *****************************************************************************
-    //                         Statistics
+    //                         MinimalExtensionList
     // *****************************************************************************
-    struct Statistics
+    class MinimalExtensionList : private boost::noncopyable
     {
-        unsigned int num_project_calls;
-        unsigned long num_ismin_calls;
-        unsigned long num_ismin_true_ret;
-        unsigned long num_detect_early_termin_x_f;
-        unsigned long num_detect_early_termin_x_b;
-        unsigned long num_detect_early_termin_r_f;
-        unsigned long num_detect_early_termin_r_b;
-        Statistics()
-            :num_project_calls(0),
-             num_ismin_calls(0),
-             num_ismin_true_ret(0),
-             num_detect_early_termin_x_f(0),
-             num_detect_early_termin_x_b(0),
-             num_detect_early_termin_r_f(0),
-             num_detect_early_termin_r_b(0)
-            {}
-        friend std::ostream& operator<< (std::ostream& strm, const Statistics& s);
+        MinimalExtension* head_;
+        SBGCreator<SBGSimple>* sbg_creator_;
+        FixedAllocator* fa_;
+    public:
+        MinimalExtensionList(SBGCreator<SBGSimple>* sbg_creator)
+            :head_(0),
+             sbg_creator_(sbg_creator),
+             fa_(sbg_creator->get_mem_allocator()->get_fixed_allocator(sizeof(*head_))) {}
+        ~MinimalExtensionList()
+            {
+                MinimalExtension* p = head_;
+                while (p)
+                {
+                    MinimalExtension* next = p->next;
+                    p->~MinimalExtension();
+                    fa_->deallocate(p);
+                    p = next;
+                }
+            }
+        MinimalExtension* push()
+            {
+                MinimalExtension* p = new (fa_->allocate()) MinimalExtension(sbg_creator_);
+                p->next = head_;
+                head_ = p;
+                return p;
+            }
     };
 
-    std::ostream& operator<< (std::ostream& strm, const Statistics& s)
-    {
-        float ismin_true_ret_prc = s.num_ismin_true_ret;
-        ismin_true_ret_prc /= (float)s.num_ismin_calls;
-        int et_total =
-            s.num_detect_early_termin_x_f + s.num_detect_early_termin_x_b +
-            s.num_detect_early_termin_r_f + s.num_detect_early_termin_r_b;
-        strm << "--------- statistics ------------------------";
-        strm << "\nnum_project_calls           = " << s.num_project_calls
-             << "\nnum_ismin_calls             = " << s.num_ismin_calls
-             << "\nismin_true_ret              = " << s.num_ismin_true_ret
-             << "\nismin_true_ret%             = " << ismin_true_ret_prc*100.0f
-             << "\nnum_detect_early_termin_x_f = " << s.num_detect_early_termin_x_f
-             << "\nnum_detect_early_termin_x_b = " << s.num_detect_early_termin_x_b
-             << "\nnum_detect_early_termin_r_f = " << s.num_detect_early_termin_r_f
-             << "\nnum_detect_early_termin_r_b = " << s.num_detect_early_termin_r_b
-             << "\nnum_detect_early_termin     = " << et_total
-             << std::endl;
-        strm << "---------------------------------------------" << std::endl;
-        return strm;
-    }
-#endif
 
 
     // *****************************************************************************
@@ -845,7 +891,7 @@ namespace gSpan
 	SBGCreator<SBG>		sbg_creator;
 	SBGCreator<SBGSimple>	sbgsimple_creator;
 
-	const int minsup_;
+	const support_type minsup_;
         GspanResult* result_;
  
 #ifdef GSPAN_TRACE
@@ -885,8 +931,12 @@ namespace gSpan
         void on_enter_frame()           {}
 #endif
 
-        SharedData(int minsup, std::size_t max_num_vertices, GspanResult* result, unsigned int max_trace_depth)
-            : dfsc(max_num_vertices)
+        SharedData(support_type minsup,
+                   std::size_t max_num_vertices,
+                   std::size_t max_num_edges,
+                   GspanResult* result,
+                   unsigned int max_trace_depth)
+            : dfsc(max_num_vertices, max_num_edges)
             , sbg_creator(&mem_alloc)
 	    , sbgsimple_creator(&mem_alloc)
 	    , minsup_(minsup)
@@ -910,8 +960,7 @@ namespace gSpan
     template<class SG>
     struct FrameState
     {
-	typedef Embeddings<SG> Embd;
-	const Embd* embd;
+	SG* sg;
 
         RMPath rmpath;
 
@@ -930,14 +979,14 @@ namespace gSpan
         // cause of not close
         ExtType exttype_notclose;
         const EdgeCode* ec_notclose;
-        const Embd* embd_ext_notclose;
-
+        const SG* sg_ext_notclose;
+        
         // cause of early_termin
         ExtType exttype_early_term;
         const EdgeCode* ec_early_term;
-        const Embd* embd_ext_early_term;
+        const SG* sg_ext_early_term;
 
-	typedef std::pair<const EdgeCode*, const Embd*> RChild;
+	typedef std::pair<const EdgeCode*, SG*> RChild;
         typedef std::vector<RChild, STL_Allocator<RChild> > RChildren;
         typedef typename RChildren::const_iterator RChildIter;
         RChildren children;
@@ -954,20 +1003,20 @@ namespace gSpan
         const FrameState* early_term_frame;
 #endif
 
-	FrameState(SharedData* shared, FrameState* prev, const Embd* embd);
+	FrameState(SharedData* shared, FrameState* prev, SG* subgraphs);
     };
 
 
     template<class SG>
-    FrameState<SG>::FrameState(SharedData* shared, FrameState* prev, const Embd* embeddings)
-	: embd(embeddings)
+    FrameState<SG>::FrameState(SharedData* shared, FrameState* prev, SG* subgraphs)
+	: sg(subgraphs)
 	, rmpath(shared->dfsc, &shared->mem_alloc)
-	, x_edges(&shared->mem_alloc, &shared->sbg_creator)
-	, r_edges(&shared->mem_alloc, &shared->sbg_creator)
+	, x_edges(&shared->sbg_creator)
+	, r_edges(&shared->sbg_creator)
 	, closed(true)
 	, early_term(false)
-	, exttype_notclose(EXT_NONE), ec_notclose(0), embd_ext_notclose(0)
-	, exttype_early_term(EXT_NONE), ec_early_term(0), embd_ext_early_term(0)
+	, exttype_notclose(EXT_NONE), ec_notclose(0), sg_ext_notclose(0)
+	, exttype_early_term(EXT_NONE), ec_early_term(0), sg_ext_early_term(0)
 	, children(STL_Allocator<RChild>(&shared->mem_alloc))
 	, prev_state(prev)
 	, depth(shared->dfsc.size())
@@ -988,6 +1037,7 @@ namespace gSpan
     // *****************************************************************************
     //                         functions
     // *****************************************************************************
+
     template<class Ext>
     void enum_one_edges(Ext& ext, const Graph& g)
     {
@@ -1003,12 +1053,12 @@ namespace gSpan
     // for dfsc check minimality, we use std::vector as DFSCode
     typedef std::vector<EdgeCode> DFSCodeLite;
 
-
     void enumerate_min_bck(MinimalExtension& ext,
 			   const DFSCodeLite& dfsc_min,
-                           const SBG_List<SBGSimple>& elist,
+                           typename Make_SBG_List_Embedding<SBGSimple>::Type& slist,
 			   const RMPath& rmpath,
-			   const Graph& g)
+			   const Graph& g,
+                           MemAllocator* mem_allocator)
     {
 	const DfscVI vi_dfsc_rmost = dfsc_min[rmpath.rightmost_edgeindex()].vi_dst();
 	const VL vl_rmost = dfsc_min[rmpath.rightmost_edgeindex()].vl_dst();
@@ -1020,11 +1070,10 @@ namespace gSpan
             const EL el_rmpath = ec_rmpath.el();
             const bool vl_less_eq = ec_rmpath.vl_dst() <= vl_rmost;
 
-	    for (SBGSimple* s = elist.get_first(); s; s = s->next_embedding())
+	    for (SBGSimple* s = slist.first(); s; s = s->next_embedding())
 	    {
-		const SBGSimple* s_rmost = parent(s, rmpath.rightmost_edgeindex() + 1);
-		const Graph::Edge* e_rmost = s_rmost->edge();
-		const GraphVI graph_vi = parent(s_rmost, rmpath[i] + 1)->edge()->vi_src();
+		const Graph::Edge* e_rmost = s->find_edge(rmpath.rightmost_edgeindex() + 1, mem_allocator);
+		const GraphVI graph_vi = s->find_edge(rmpath[i] + 1, mem_allocator)->vi_src();
 
                 if (s->has_no_extension(graph_vi))
                     continue;
@@ -1048,26 +1097,23 @@ namespace gSpan
 	    }
 	}
     }
- 
+
     void enumerate_min_fwd(MinimalExtension& ext,
 			   const DFSCodeLite& dfsc_min,
-                           const SBG_List<SBGSimple>& elist,
+                           typename Make_SBG_List_Embedding<SBGSimple>::Type& slist,
 			   const RMPath& rmpath,
-			   const Graph& g)
+			   const Graph& g,
+                           MemAllocator* mem_allocator)
     {
         const DfscVI vi_dfsc_rmost = dfsc_min[rmpath.rightmost_edgeindex()].vi_dst();
         const VL vl_rmost = dfsc_min[rmpath.rightmost_edgeindex()].vl_dst();
         const VL vl_minimum = dfsc_min[0].vl_src();
 
 	// forward pure
-	for (SBGSimple* s = elist.get_first(); s; s = s->next_embedding())
+	for (SBGSimple* s = slist.first(); s; s = s->next_embedding())
 	{
-	    const SBGSimple* s_rmost = parent(s, rmpath.rightmost_edgeindex() + 1);
-	    const Graph::Edge* e_rmost = s_rmost->edge();
+	    const Graph::Edge* e_rmost = s->find_edge(rmpath.rightmost_edgeindex() + 1, mem_allocator);
 	    GraphVI graph_vi = e_rmost->vi_dst();
-
-            // const Graph::Edge* e_rmost = (*s)[rmpath.rightmost_edgeindex()];
-            // GraphVI graph_vi = e_rmost->vi_dst();
 
             if (s->has_no_extension(graph_vi))
                 continue;
@@ -1092,9 +1138,9 @@ namespace gSpan
 	for (int i = 0; ext.empty() && i < rmpath.num_edges(); ++i)
 	{
 	    const EdgeCode& ec_rmpath = dfsc_min[rmpath[i]];
-	    for (SBGSimple* s = elist.get_first(); s; s = s->next_embedding())
+	    for (SBGSimple* s = slist.first(); s; s = s->next_embedding())
 	    {
-		const GraphVI graph_vi = parent(s, rmpath[i] + 1)->edge()->vi_src();
+		const GraphVI graph_vi = s->find_edge(rmpath[i] + 1, mem_allocator)->vi_src();
 
 		if (s->has_no_extension(graph_vi))
 		    continue;
@@ -1119,41 +1165,34 @@ namespace gSpan
     
     bool is_min_iterative(SharedData* shared)
     {
+
 	const DFSCode& dfsc_tested = shared->dfsc;
-
-	const Graph& graph = dfsc_tested.get_graph();
-	//Graph graph(dfsc_tested.begin(), dfsc_tested.end());
-
-	typedef STL_Allocator<MinimalExtension> ExtAllocator;
-	std::list<MinimalExtension, ExtAllocator> exts(1,
-						       MinimalExtension(&shared->sbgsimple_creator),
-						       ExtAllocator(&shared->mem_alloc));
-	MinimalExtension* exts1 = &exts.back();
-	
-	enum_one_edges(*exts1, graph);
-
-	DFSCodeLite dfsc_min;
+        DFSCodeLite dfsc_min;
 	dfsc_min.reserve(dfsc_tested.size());
 
-	while (true)
+	const Graph& graph = dfsc_tested.get_graph();
+        MinimalExtensionList ext_list(&shared->sbgsimple_creator);
+        MinimalExtension* exts1 = ext_list.push();
+
+        enum_one_edges(*exts1, graph);
+
+        while (true)
 	{
 	    dfsc_min.push_back(exts1->get_ec());
             if (dfsc_min[dfsc_min.size()-1] != dfsc_tested[dfsc_min.size()-1])
                 return false;
 	    
 	    RMPath rmpath(dfsc_min, &shared->mem_alloc);
-	    
-	    exts.push_back(MinimalExtension(&shared->sbgsimple_creator));
-	    MinimalExtension* exts2 = &exts.back();
+            MinimalExtension* exts2 = ext_list.push();
 
-	    enumerate_min_bck(*exts2, dfsc_min, *exts1, rmpath, graph);
+            enumerate_min_bck(*exts2, dfsc_min, exts1->get_list(), rmpath, graph, &shared->mem_alloc);
 	    if (! exts2->empty())
             {
                 exts1 = exts2;
                 continue;
             }
 
-	    enumerate_min_fwd(*exts2, dfsc_min, *exts1, rmpath, graph);
+	    enumerate_min_fwd(*exts2, dfsc_min, exts1->get_list(), rmpath, graph, &shared->mem_alloc);
 	    if (! exts2->empty())
             {
                 exts1 = exts2;
@@ -1161,7 +1200,7 @@ namespace gSpan
             }
 	    
 	    return true;
-	}
+        }
     }
 
 
@@ -1192,24 +1231,35 @@ namespace gSpan
         return r;
     }
 
-
     // -----------------------------------
     //	trace, check and debug functions
     // -----------------------------------
 
 #ifdef GSPAN_TRACE
+    void print_msg(const FrameState<SubgraphsOfOneGraph>* frame, const EdgeCode& ec)
+    {
+        std::cerr << ec
+                  << " support=" << frame->sg->support()
+                  << " num_subgraphs=" << frame->sg->size_list_all()
+                  << " num_autgroups=" << frame->sg->size_list_autgroup()
+                  << " frame=" << frame->id;
+    }
+
+    void print_msg(const FrameState<SubgraphsOfManyGraph>* frame, const EdgeCode& ec)
+    {
+        std::cerr << ec
+                  << " support=" << frame->sg->support()
+                  << " num_subgraphs=" << frame->sg->size_list_all()
+                  << " frame=" << frame->id;
+    }
+
     template<class SG>
     void print_frame_trace(const FrameState<SG>* frame, const SharedData* shared)
     {
         using namespace std;
         cerr << shared->dfsc.size() << ":";
-        for (unsigned int i = 0; i < shared->dfsc.size(); ++i)
-            cerr << " ";
-        cerr << shared->dfsc.top()
-             << " support=" << frame->embd->support()
-             << " size=" << frame->embd->size()
-             << " num_uniq=" << frame->embd->container().size()
-             << " frame=" << frame->id;
+        for (unsigned int i = 0; i < shared->dfsc.size(); ++i) cerr << " ";
+        print_msg(frame, shared->dfsc.top());
 #ifdef CHECK_MODE
         if (frame->TERMINATED_BRANCH)
         {
@@ -1263,12 +1313,12 @@ namespace gSpan
                  << endl;
         cerr << "--------------------------\n";
         cerr << "Embeddings:\n";
-        cerr << *frame->embd;
+        cerr << *frame->sg;
         cerr << "--------------------------\n";
         cerr << "XExtentions:\n";
             
         for (XEcIter it = frame->x_edges.begin(); it != frame->x_edges.end(); ++it)
-            cerr << it->first << "\n" << it->second;
+            cerr << it->get_key() << "\n" << *it;
             
         cerr << endl;
         const FrameState<SG>* fet_frame = frame->early_term_frame;
@@ -1282,21 +1332,21 @@ namespace gSpan
                  << endl;
         cerr << "--------------------------\n";
         cerr << "Embeddings:\n";
-        cerr << *fet_frame->embd;
+        cerr << *fet_frame->sg;
         cerr << "--------------------------\n";
         cerr << "Cause Early Termination:\n";
         cerr << (fet_frame->exttype_early_term == EXT_X ? "X" : "R") << *fet_frame->ec_early_term << endl;
-        cerr << *fet_frame->embd_ext_early_term;
+        cerr << *fet_frame->sg_ext_early_term;
         cerr << "--------------------------\n";
         cerr << "RExtensions:\n";
         const EdgeCode& ec_ext = shared->dfsc[fet_frame->depth];
-        for (XEcIter it = fet_frame->r_edges.begin(); it != fet_frame->r_edges.end(); ++it)
+        for (REcIter it = fet_frame->r_edges.begin(); it != fet_frame->r_edges.end(); ++it)
         {
-            bool ch = it->first == ec_ext;
-            cerr << it->first
-                 << (is_child(fet_frame, &it->first) ? " * " : " ")
+            bool ch = it->get_key() == ec_ext;
+            cerr << it->get_key()
+                 << (is_child(fet_frame, &it->get_key()) ? " * " : " ")
                  << (ch ? "CHILD" : " ")
-                 << "\n" << it->second;
+                 << "\n" << *it;
             if (ch)
                 break;
         }
@@ -1331,9 +1381,9 @@ namespace gSpan
         if (frame->closed)
         {
 	    // calc support if nessesary
-	    frame->embd->support();
+	    frame->sg->support();
 
-            (*shared->result_)(shared->dfsc, frame->embd->container());
+            (*shared->result_)(shared->dfsc, *frame->sg);
 #ifdef CHECK_MODE
             if (frame->TERMINATED_BRANCH)
             {
@@ -1345,13 +1395,12 @@ namespace gSpan
         }
     }
 
-
     // -----------------------------------
     //	closegraph
     // -----------------------------------
 
     template<class SG>
-    void enumerate(FrameState<SG>* frame, SharedData* shared)
+    void enumerate_sog(FrameState<SG>* frame, SharedData* shared, SubgraphsOfOneGraph& sg)
     {
         typedef typename FrameState<SG>::REdges REdges;
         typedef typename FrameState<SG>::XEdges XEdges;
@@ -1359,16 +1408,16 @@ namespace gSpan
 	MemAllocator* mem_alloc = &shared->mem_alloc;
         REdges& r_edges = frame->r_edges;
         XEdges& x_edges = frame->x_edges;
-        const Embeddings<SG>& embd = *frame->embd;
         const RMPath& rmpath = frame->rmpath;
         const DfscVI vi_dfsc_rmost   = rmpath.rightmost_vertex();
         const DfscVI vi_dfsc_new = vi_dfsc_rmost + 1;
 
-	assert(rmpath.rightmost_vertex() == shared->dfsc[rmpath.rightmost_edgeindex()].vi_dst());
+        assert(rmpath.rightmost_vertex() == shared->dfsc[rmpath.rightmost_edgeindex()].vi_dst());
 
-	for (SBG* s = embd.get_first(); s; s = s->next_embedding())
-	{
-	    const Graph* g = s->get_graph();
+        const Graph* g = sg.get_graph();
+
+        for (SBG* s = sg.first_all(); s; s = s->next_embedding())
+        {
 
             //
             // array of the graph VI, indexed by the dfsc VI
@@ -1462,24 +1511,36 @@ namespace gSpan
             }
             
 	    s->free_graph_to_dfsc_v(graph_to_dfsc_v, mem_alloc);
-	}
+        } // end:: for all embeddings
+
+    }
+
+    void enumerate(FrameState<SubgraphsOfOneGraph>* frame, SharedData* shared)
+    {
+        enumerate_sog(frame, shared, *frame->sg);
+    }
+
+    void enumerate(FrameState<SubgraphsOfManyGraph>* frame, SharedData* shared)
+    {
+        SubgraphsOfManyGraph* smg = frame->sg;
+        for (SubgraphsOfManyGraph::iterator it = smg->begin(); it != smg->end(); ++it)
+            enumerate_sog(frame, shared, *it);
     }
 
     template<class Ext>
-    void remove_not_frequents(Ext& ext, int minsup)
+    void remove_not_frequents(Ext& ext, support_type minsup)
     {
         if (minsup > 1)
 	{
             for (typename Ext::iterator it = ext.begin(); it != ext.end();)
 	    {
-                if (it->second.support() < minsup)
+                if (it->support() < minsup)
                     ext.erase(it++);
                 else
                     ++it;
 	    }
 	}
     }
-
 
     bool fail_et(const SBG* sbg, const RMPath& rmpath, MemAllocator* mem_alloc, ExtType exttype)
     {
@@ -1532,35 +1593,37 @@ namespace gSpan
         return failure;
     }
 
-
-    bool fail_et(const SBG_List<SBG>& elist, const RMPath& rmpath,
-		 MemAllocator* mem_alloc, ExtType exttype)
+    bool fail_et(SubgraphsOfOneGraph& sog,
+                 const RMPath& rmpath,
+                 MemAllocator* mem_alloc, ExtType exttype)
     {
-	for (SBG* s = elist.get_first(); s; s = s->next_embedding())
+	for (SBG* s = sog.first_all(); s; s = s->next_embedding())
 	{
 	    if (fail_et(s, rmpath, mem_alloc, exttype))
                 return true;
 	}
 	return false;
-    }
-   
+    } 
 
-    template<class P, class ExtIter>
-    void detect_nc(FrameState<P>* frame, SharedData* shared, const ExtIter& it, bool equiv, ExtType exttype)
+
+    bool fail_et(SubgraphsOfManyGraph& smg,
+                 const RMPath& rmpath,
+                 MemAllocator* mem_alloc, ExtType exttype)
     {
-        if (frame->closed && (equiv || it->second.support() == frame->embd->support()))
-        {
-            frame->closed = false;
-            assert(frame->exttype_notclose == EXT_NONE);
-            frame->exttype_notclose = exttype;
-            frame->ec_notclose = &it->first;
-            frame->embd_ext_notclose = &it->second;
-        }
+        for (SubgraphsOfManyGraph::iterator it = smg.begin(); it != smg.end(); ++it)
+            for (SBG* s = it->first_all(); s; s = s->next_embedding())
+            {
+                if (fail_et(s, rmpath, mem_alloc, exttype))
+                    return true;
+            }
+        return false;
+    } 
 
-    }
 
-    template<class P, class ExtIter>
-    void detect_et(FrameState<P>* frame, SharedData* shared, const ExtIter& it, bool equiv, ExtType exttype)
+    template<class SG, class Compare>
+    void detect_et(FrameState<SG>* frame, SharedData* shared,
+                   SetNode<EdgeCode, SG, Compare>& ext_sg,
+                   bool equiv, ExtType exttype)
     {
         if (equiv && !frame->early_term
 #ifdef CHECK_MODE
@@ -1568,15 +1631,15 @@ namespace gSpan
 #endif
             )
         {
-            if (it->first.is_forward())
+            if (ext_sg.get_key().is_forward())
             {
-                frame->early_term = ! fail_et(it->second, frame->rmpath, &shared->mem_alloc, exttype);
+                frame->early_term = ! fail_et(ext_sg, frame->rmpath, &shared->mem_alloc, exttype);
                 if (frame->early_term)
                     shared->on_early_term_f(exttype);
             }
             else
             {
-                frame->early_term = it->second.size() == frame->embd->size();
+                frame->early_term = ext_sg.size_list_all() == frame->sg->size_list_all();
                 if (exttype == EXT_R)
                     frame->early_term = true;
 
@@ -1588,33 +1651,48 @@ namespace gSpan
             {
                 assert(frame->exttype_early_term == EXT_NONE);
                 frame->exttype_early_term = exttype;
-                frame->ec_early_term = &it->first;
-                frame->embd_ext_early_term = &it->second;
+                frame->ec_early_term = &ext_sg.get_key();
+                frame->sg_ext_early_term = &ext_sg;
             }
         }
     }
-    
+
+    template<class SG, class Compare>
+    void detect_nc(FrameState<SG>* frame, const SetNode<EdgeCode, SG, Compare>& ext_sg, bool equiv, ExtType exttype)
+    {
+        if (frame->closed && (equiv || ext_sg.support() == frame->sg->support()))
+        {
+            frame->closed = false;
+            assert(frame->exttype_notclose == EXT_NONE);
+            frame->exttype_notclose = exttype;
+            frame->ec_notclose = &ext_sg.get_key();
+            frame->sg_ext_notclose = &ext_sg;
+        }
+    }
+
     template<class SG>
-    void project(SharedData* shared, FrameState<SG>* parent_frame, const Embeddings<SG>* embd)
+    void project(SharedData* shared, FrameState<SG>* parent_frame, SG* sg_parent)
     {
         typedef typename FrameState<SG>::REdges REdges;
         typedef typename FrameState<SG>::XEdges XEdges;
         typedef typename REdges::const_iterator REcIter;
         typedef typename XEdges::const_iterator XEcIter;
+        typedef typename REdges::iterator REIter;
+        typedef typename XEdges::iterator XEIter;
         typedef typename FrameState<SG>::RChild RChild;
         typedef typename FrameState<SG>::RChildren RChildren;
 
         shared->on_enter_frame();
-        FrameState<SG> frame(shared, parent_frame, embd);
-
+        FrameState<SG> frame(shared, parent_frame, sg_parent);
+        
         enumerate(&frame, shared);
         remove_not_frequents(frame.r_edges, shared->minsup_);
 
-        for (XEcIter it = frame.x_edges.begin(); it != frame.x_edges.end(); ++it)
+        for (XEIter it = frame.x_edges.begin(); it != frame.x_edges.end(); ++it)
         {
-            bool equiv = is_equal_occurrence(it->second, *frame.embd);
-            detect_nc(&frame, shared, it, equiv, EXT_X);
-            detect_et(&frame, shared, it, equiv, EXT_X);
+            bool equiv = is_equal_occurrence(*it, *sg_parent);
+            detect_nc(&frame, *it, equiv, EXT_X);
+            detect_et(&frame, shared, *it, equiv, EXT_X);
             if (frame.early_term && frame.closed)
                 break;
         }
@@ -1629,27 +1707,27 @@ namespace gSpan
         bool is_min_last = false;
         EdgeCode ec_last;
 #ifdef CHECK_MODE
-        for (REcIter it = frame.r_edges.begin(); it != frame.r_edges.end(); ++it)
+        for (REIter it = frame.r_edges.begin(); it != frame.r_edges.end(); ++it)
         {
-            bool equiv = is_equal_occurrence(it->second, *frame.embd);
-            detect_nc(&frame, shared, it, equiv, EXT_R);
-            if (is_min(shared, &frame, it->first, is_min_last, ec_last))
+            bool equiv = is_equal_occurrence(*it, *frame.sg);
+            detect_nc(&frame, *it, equiv, EXT_R);
+            if (is_min(shared, &frame, it->get_key(), is_min_last, ec_last))
             {
-                detect_et(&frame, shared, it, equiv, EXT_R);
-                frame.children.push_back(RChild(&it->first, &it->second));
+                detect_et(&frame, shared, *it, equiv, EXT_R);
+                frame.children.push_back(RChild(&it->get_key(), &*it));
             }
         }
 #else
-        for (REcIter it = frame.r_edges.begin(); it != frame.r_edges.end(); ++it)
+        for (REIter it = frame.r_edges.begin(); it != frame.r_edges.end(); ++it)
         {
-            bool equiv = is_equal_occurrence(it->second, *frame.embd);
-            detect_nc(&frame, shared, it, equiv, EXT_R);
+            bool equiv = is_equal_occurrence(*it, *frame.sg);
+            detect_nc(&frame, *it, equiv, EXT_R);
             if (!frame.early_term)
             {
-                if (is_min(shared, &frame, it->first, is_min_last, ec_last))
+                if (is_min(shared, &frame, it->get_key(), is_min_last, ec_last))
                 {
-                    detect_et(&frame, shared, it, equiv, EXT_R);
-                    frame.children.push_back(RChild(&it->first, &it->second));
+                    detect_et(&frame, shared, *it, equiv, EXT_R);
+                    frame.children.push_back(RChild(&it->get_key(), &*it));
                 }
             }
             if (frame.early_term && frame.closed)
@@ -1660,7 +1738,7 @@ namespace gSpan
         trace_frame(&frame, shared);
         result(&frame, shared);
             
-        typedef typename RChildren::const_iterator ChIter;
+        typedef typename RChildren::iterator ChIter;
         for (ChIter it = frame.children.begin(); it != frame.children.end(); ++it)
         {
             shared->dfsc.push(*it->first);
@@ -1672,7 +1750,6 @@ namespace gSpan
                 frame.early_term_frame = &frame;
 #endif
         }
-
     }
 
     template<class SG>
@@ -1680,45 +1757,44 @@ namespace gSpan
     {
         for (typename Extension<SG, EdgeCodeCmpDfs>::iterator i = r_edges.begin(); i != r_edges.end(); ++i)
         {
-            Embeddings<SG>& embd = i->second;
-            if (embd.support() >= shared->minsup_)
+            SG& sg = *i;
+            if (sg.support() >= shared->minsup_)
             {
-                shared->dfsc.push(i->first);
-                project<SG>(shared, 0, &embd);
+                shared->dfsc.push(i->get_key());
+                project<SG>(shared, 0, &sg);
                 shared->dfsc.pop();
             }
         }
     }
 
-    void closegraph(const Graph& graph, int minsup, GspanResult* result, int max_trace_depth)
+    void closegraph(const Graph& graph,
+                    support_type minsup,
+                    GspanResult* result,
+                    int max_trace_depth)
     {
-/*
-	std::cerr << "SIZE= " << sizeof(typename FrameState<SubgraphsOfOneGraph>::REdges) << std::endl;
-	std::cerr << "SBG SIZE= " << sizeof(SBG) << std::endl;
-	std::cerr << std::endl;
-	return;
-*/
-        SharedData shared(minsup, graph.num_vertices(), result, max_trace_depth);
-        typedef Embeddings<SubgraphsOfOneGraph> Embd;
-        Extension<SubgraphsOfOneGraph, EdgeCodeCmpDfs> r_edges(&shared.mem_alloc, &shared.sbg_creator);
-
+        SharedData shared(minsup, graph.num_vertices(), graph.num_edges(), result, max_trace_depth);
+        Extension<SubgraphsOfOneGraph, EdgeCodeCmpDfs> r_edges(&shared.sbg_creator);
         enum_one_edges(r_edges, graph);
         run(&shared, r_edges);
     }
 
-
-    void closegraph(const std::vector<const Graph*>& graphs, int minsup, GspanResult* result, int max_trace_depth)
+    void closegraph(const std::vector<const Graph*>& graphs,
+                    support_type minsup,
+                    GspanResult* result,
+                    int max_trace_depth)
     {
-        std::size_t max_vi = 0;
+        std::size_t max_num_vertices = 0;
+        std::size_t max_num_edges = 0;
         for (std::vector<const Graph*>::const_iterator i = graphs.begin(); i != graphs.end(); ++i)
-            max_vi = std::max(max_vi, (*i)->num_vertices());
-
-        SharedData shared(minsup, max_vi + 1, result, max_trace_depth);
-        typedef Embeddings<SubgraphsOfManyGraph> Embd;
-        Extension<SubgraphsOfManyGraph, EdgeCodeCmpDfs> r_edges(&shared.mem_alloc, &shared.sbg_creator);
+        {
+            max_num_vertices    = std::max(max_num_vertices, (*i)->num_vertices());
+            max_num_edges       = std::max(max_num_edges, (*i)->num_vertices());
+        }
+        
+        SharedData shared(minsup, max_num_vertices, max_num_edges, result, max_trace_depth);
+        Extension<SubgraphsOfManyGraph, EdgeCodeCmpDfs> r_edges(&shared.sbg_creator);
         for (std::vector<const Graph*>::const_iterator i = graphs.begin(); i != graphs.end(); ++i)
             enum_one_edges(r_edges, **i);
         run(&shared, r_edges);
     }
-
 }

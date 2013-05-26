@@ -159,38 +159,37 @@ namespace gSpan
     class Graph : private boost::noncopyable
     {
     public:
+        typedef detail::Edge Edge;
 
-        // ----------------------------------------------
         // preferable for transactional graph creation
-        // ----------------------------------------------
         template<class EdgeCodeIterator>
         Graph(EdgeCodeIterator it, const EdgeCodeIterator it_end)
             :num_vertices_(calc_num_vertices(it, it_end)),
              num_edges_(0),
+             max_num_edges_(std::distance(it, it_end)),
              vertices_(new IncidEdges[num_vertices_]),
+             history_(new Record[std::distance(it, it_end)]),
              edge_allocator_(sizeof(detail::Edge))
             {
-                vertices_ = new IncidEdges[num_vertices_];                
                 while (it != it_end) push_edge(*it++);
             }
 
         // preferable for internal use
-        Graph(std::size_t max_num_vertices)
+        Graph(std::size_t max_num_vertices, std::size_t max_num_edges)
             :num_vertices_(0),
              num_edges_(0),
+             max_num_edges_(max_num_edges),
              vertices_(new IncidEdges[max_num_vertices]),
+             history_(new Record[max_num_edges]),
              edge_allocator_(sizeof(detail::Edge))
-            { 
-                float f = (max_num_vertices * max_num_vertices) * 0.6;
-                history_.reserve(std::size_t(f));
+            {
             }
 
         ~Graph();
 
-        std::size_t num_vertices() const                { return num_vertices_; }
-        std::size_t num_edges() const                   { return num_edges_; }
-
-        typedef detail::Edge            Edge;
+        std::size_t num_vertices() const        { return num_vertices_; }
+        std::size_t num_edges() const           { return num_edges_; }
+        std::size_t max_num_edges() const       { return max_num_edges_; }
 
         // Intrusive Sets
         typedef boost::intrusive::member_hook<Edge, Edge::SetHook, &Edge::edge_set_hook_> EdgeSetHookMemberOption;
@@ -199,10 +198,10 @@ namespace gSpan
         typedef boost::intrusive::multiset<Edge, IncidSetHookMemberOption> IncidentEdgesSet;        
         typedef EdgesSet::const_iterator EdgesIterator;
 
-        const EdgesSet& edges() const         { return edges_; }
+        const EdgesSet& edges() const           { return edges_; }
 
         // return pointer to first edge in the list
-        const Edge* incident(GraphVI vi) const   { return vertices_[vi].adj_list(); }
+        const Edge* incident(GraphVI vi) const  { return vertices_[vi].adj_list(); }
 
 
         // preferable for internal use
@@ -213,32 +212,35 @@ namespace gSpan
     private:
         std::size_t num_vertices_;
         std::size_t num_edges_;
+        const std::size_t max_num_edges_;
 
         class IncidEdges
         {
-            IncidentEdgesSet*   set_;
+            IncidentEdgesSet    set_;
             Edge*               adjacent_list_;
         public:
-            IncidEdges() :set_(new IncidentEdgesSet), adjacent_list_(0) {}
-            ~IncidEdges() { delete set_; }
+            IncidEdges() :adjacent_list_(0) {}
             void add_edge(Edge* e);
             void del_edge(Edge* e);
             const Edge* adj_list() const { return adjacent_list_; }
         };
-
         IncidEdges* vertices_;  // array
-        EdgesSet edges_;
+        EdgesSet edges_;        // Edge owner
 
         struct Record
         {
             Edge* edge;
             std::size_t num_vertices;
+            Record() :edge(0), num_vertices(0) {}
             Record(Edge* e, std::size_t nver) : edge(e), num_vertices(nver) {}
         };
-        std::vector<Record> history_;
+        Record* history_;       // array
 
         FixedAllocator edge_allocator_;
     };
+
+    inline std::size_t graph_size(const Graph& g) { return std::max(g.num_vertices(), g.num_edges()); }
+    inline std::size_t graph_size(const Graph* g) { return graph_size(*g); }
 
 
     inline std::ostream& operator<<(std::ostream& out, const Graph::Edge& e)

@@ -1,257 +1,293 @@
 #ifndef GSPAN_H_
 #define GSPAN_H_
 
+#include "gspan_allocator.hpp"
+#include "gspan_graph.hpp"
+
 #include <iostream>
 #include <vector>
-#include <set>
-#include <map>
 #include <cassert>
-#include <cstring>	// memset(), memcpy()
-
 
 #ifdef USE_ASM
 #include <stdint.h>
 #endif
 
-#include "gspan_allocator.hpp"
-#include "gspan_graph.hpp"
-
 #ifndef BR
 #define BR asm volatile ("int3;")
 #endif
 
-#ifdef USE_ASM
+#if defined(USE_ASM)
 #define PREFETCH(addr)  asm("prefetcht0 %0\n" : :"m"((addr)))
 #else
 #define PREFETCH(addr)
 #endif
 
-
 namespace gSpan
 {
+    typedef unsigned int support_type;
+    const support_type SUPPORT_VOID = 0U;
 
     // *****************************************************************************
     //                          EdgeCode
-    //				DFSCode
     // *****************************************************************************
     class EdgeCode
     {
-	friend struct EdgeCodeCmpLex;
-#ifdef USE_ASM
-	// TODO: Compatibility check for DfscVI, VL and EL for uint16_t
-	enum { VI_SRC_I, VI_DST_I, VL_SRC_I, EL_I, VL_DST_I };
-	uint16_t x_[5];
+        friend struct EdgeCodeCmpLex;
+#if defined(USE_ASM)
+        /* for little-endian
+         * +-----------------+-----------------+-----------------+
+         * |                 |                 |                 |
+         * 0        2        4        6        8        10       |
+         * +--------+--------+--------+--------+--------+--------+
+         * |        |        |        |        |        |        |
+         * |  ZERO  |VL_DST_I|  EL_I  |VL_SRC_I|VI_DST_I|VI_SRC_I|
+         * +--------+--------+--------+--------+--------+--------+
+         *
+         * for big-endian (logical sense of that)
+         * +-----------------+-----------------+-----------------+
+         * |                 |                 |                 |
+         * 0        2        4        6        8        10       |
+         * +--------+--------+--------+--------+--------+--------+
+         * |        |        |        |        |        |        |
+         * |VI_SRC_I|VI_DST_I|VL_SRC_I|  EL_I  |VL_DST_I|  ZERO  |
+         * +--------+--------+--------+--------+--------+--------+
+         */
+        enum { ZERO, VL_DST_I, EL_I, VL_SRC_I, VI_DST_I, VI_SRC_I };
+        uint16_t x_[6];
 #else
-	DfscVI vi_src_, vi_dst_;
-	VL vl_src_, vl_dst_;
-	EL el_;
+        DfscVI vi_src_, vi_dst_;
+        VL vl_src_, vl_dst_;
+        EL el_;
 #endif
-	bool is_fwd_;
+        bool is_fwd_;
+
     public:
-#ifdef USE_ASM
-	EdgeCode()
-	    :is_fwd_(false)
-	    {
-		x_[VI_SRC_I] = x_[VI_DST_I] = VI_NULL;
-		x_[VL_SRC_I] = x_[VL_DST_I] = VL_NULL;
-		x_[EL_I] = EL_NULL;
-	    }
 
-	EdgeCode(DfscVI vi_src, DfscVI vi_dst, VL vl_src, EL el, VL vl_dst, bool fwd)
-	    :is_fwd_(fwd)
-	    {
-		x_[VI_SRC_I] = vi_src; x_[VI_DST_I] = vi_dst;
-		x_[VL_SRC_I] = vl_src; x_[VL_DST_I] = vl_dst;
-		x_[EL_I] = el;
-	    }
-	
-	DfscVI vi_src() const	{ return x_[VI_SRC_I]; }
-	DfscVI vi_dst() const	{ return x_[VI_DST_I]; }
-	VL vl_src() const	{ return x_[VL_SRC_I]; }
-	VL vl_dst() const	{ return x_[VL_DST_I]; }
-	EL el() const		{ return x_[EL_I]; }
+#if defined(USE_ASM)
+        EdgeCode()
+            :is_fwd_(false)
+            {
+                x_[VI_SRC_I] = x_[VI_DST_I] = VI_NULL;
+                x_[VL_SRC_I] = x_[VL_DST_I] = VL_NULL;
+                x_[EL_I] = EL_NULL;
+                x_[ZERO] = 0U;
+            }
 
-	void chgdir()
-	    {
-		std::swap(x_[VI_SRC_I], x_[VI_DST_I]);
-		std::swap(x_[VL_SRC_I], x_[VL_DST_I]);
-	    }
+        EdgeCode(DfscVI vi_src, DfscVI vi_dst, VL vl_src, EL el, VL vl_dst, bool fwd)
+            :is_fwd_(fwd)
+            {
+                x_[VI_SRC_I] = vi_src; x_[VI_DST_I] = vi_dst;
+                x_[VL_SRC_I] = vl_src; x_[VL_DST_I] = vl_dst;
+                x_[EL_I] = el;
+                x_[ZERO] = 0U;
+            }
+
+        DfscVI vi_src() const   { return x_[VI_SRC_I]; }
+        DfscVI vi_dst() const   { return x_[VI_DST_I]; }
+        VL vl_src() const       { return x_[VL_SRC_I]; }
+        VL vl_dst() const       { return x_[VL_DST_I]; }
+        EL el() const           { return x_[EL_I]; }
+        void chgdir() { std::swap(x_[VI_SRC_I], x_[VI_DST_I]); std::swap(x_[VL_SRC_I], x_[VL_DST_I]); }
 #else
-	EdgeCode()
-	    :vi_src_(VI_NULL), vi_dst_(VI_NULL),
-	     vl_src_(VL_NULL), vl_dst_(VL_NULL), el_(EL_NULL),
-	     is_fwd_(false)
-	    {}
+        EdgeCode()
+            :vi_src_(VI_NULL), vi_dst_(VI_NULL),
+             vl_src_(VL_NULL), vl_dst_(VL_NULL), el_(EL_NULL),
+             is_fwd_(false)
+            {}
 
-	EdgeCode(DfscVI vi_from, DfscVI vi_to, VL vl_from, EL el, VL vl_to, bool fwd)
-	    :vi_src_(vi_from), vi_dst_(vi_to),
-	     vl_src_(vl_from), vl_dst_(vl_to), el_(el),
-	     is_fwd_(fwd) {}
+        EdgeCode(DfscVI vi_from, DfscVI vi_to, VL vl_from, EL el, VL vl_to, bool fwd)
+            :vi_src_(vi_from), vi_dst_(vi_to),
+             vl_src_(vl_from), vl_dst_(vl_to), el_(el),
+             is_fwd_(fwd) {}
 
-	DfscVI vi_src() const	{ return vi_src_; }
-	DfscVI vi_dst() const	{ return vi_dst_; }
-	VL vl_src() const	{ return vl_src_; }
-	VL vl_dst() const	{ return vl_dst_; }
-	EL el() const		{ return el_; }
-	void chgdir() { std::swap(vi_src_, vi_dst_); std::swap(vl_src_, vl_dst_); }
+        DfscVI vi_src() const   { return vi_src_; }
+        DfscVI vi_dst() const   { return vi_dst_; }
+        VL vl_src() const       { return vl_src_; }
+        VL vl_dst() const       { return vl_dst_; }
+        EL el() const           { return el_; }
+        void chgdir() { std::swap(vi_src_, vi_dst_); std::swap(vl_src_, vl_dst_); }
 #endif
 
-	bool is_forward() const		{ return is_fwd_; }
-	bool is_backward() const	{ return !is_fwd_; }
-	EdgeCode operator- () const { EdgeCode ec(*this); ec.chgdir(); return ec; }
-	bool operator!= (const EdgeCode& ec) const	{ return ! (*this == ec); }
-	bool operator== (const EdgeCode& ec) const;
+        bool is_forward() const         { return is_fwd_; }
+        bool is_backward() const        { return !is_fwd_; }
+        EdgeCode operator- () const { EdgeCode ec(*this); ec.chgdir(); return ec; }
+        bool operator!= (const EdgeCode& ec) const      { return ! (*this == ec); }
+        bool operator== (const EdgeCode& ec) const;
     };
+
+    struct EdgeCodeCmpDfs
+    {
+        bool operator() (const EdgeCode& ec1, const EdgeCode& ec2) const;
+    };
+
+    struct EdgeCodeCmpLex
+    {
+        bool operator() (const EdgeCode& ec1, const EdgeCode& ec2) const;
+    };
+
 
     // *****************************************************************************
     //                          DFSCode
     // *****************************************************************************
     class DFSCode
     {
-	std::vector<EdgeCode> dfsc_;
-	Graph graph_;
+        std::vector<EdgeCode> dfsc_;
+        Graph graph_;
     public:
-        DFSCode(std::size_t max_num_vertices) :graph_(max_num_vertices) {}
-
-	// dfscode is a stack
-	typedef std::vector<EdgeCode>::const_iterator const_iterator;
-	const EdgeCode& top() const { return dfsc_.back(); }
-	const_iterator begin() const { return dfsc_.begin(); }
-	const_iterator end() const { return dfsc_.end(); }
-	std::size_t size() const { return dfsc_.size(); }
-	void push(const EdgeCode& ec)	{ dfsc_.push_back(ec); graph_.push_edge(ec); }
-	void pop()			{ dfsc_.pop_back(); graph_.pop_edge(); }
-	const EdgeCode& operator[] (int i) const { return dfsc_[i]; }
-	void reserve(std::size_t s) { dfsc_.reserve(s); }
-
-	const Graph& get_graph() const { return graph_; }
+        DFSCode(std::size_t max_num_vertices, std::size_t max_num_edges)
+            :graph_(max_num_vertices, max_num_edges) { dfsc_.reserve(max_num_edges); }
+        
+        // dfscode is a stack
+        typedef std::vector<EdgeCode>::const_iterator const_iterator;
+        const EdgeCode& top() const     { return dfsc_.back(); }
+        const_iterator begin() const    { return dfsc_.begin(); }
+        const_iterator end() const      { return dfsc_.end(); }
+        std::size_t size() const        { return dfsc_.size(); }
+        void push(const EdgeCode& ec)   { dfsc_.push_back(ec); graph_.push_edge(ec); }
+        void pop()                      { dfsc_.pop_back(); graph_.pop_edge(); }
+        const EdgeCode& operator[] (std::size_t i) const { return dfsc_[i]; }
+        const Graph& get_graph() const  { return graph_; }
     };
 
+    // *****************************************************************************
+    //                          Bitset
+    // *****************************************************************************
+    class Bitset : private boost::noncopyable
+    {
+    public:
+        typedef unsigned int size_type;
+        Bitset(MemAllocator*, size_type size);
+        Bitset(MemAllocator*, size_type size, const Bitset& bf);
+        ~Bitset();
+        void free_resource(MemAllocator*, size_type);
+        bool test(size_type pos, size_type size) const;
+        bool set(size_type pos, size_type size);
+        bool clear(size_type pos, size_type size);
+        bool all_set(size_type size) const;
+        static bool is_equal(const Bitset& bf1, const Bitset& bf2, size_type size);
+    private:
+        typedef unsigned long long Chunk;
+        static size_type num_chunkbits()                { return CHAR_BIT * sizeof(Chunk); }
+        static std::size_t num_chanks(size_type size)   { return (size + num_chunkbits() - 1U) / num_chunkbits(); }
+        bool use_bitfield(size_type size) const         { return size <= num_chunkbits(); }
+        union
+        {
+            Chunk       field;
+            Chunk*      ptr;            
+        } bit_;
 
-    //typedef std::vector<EdgeCode> DFSCode;
-    DfscVI max_vertex(const DFSCode& dfsc);
+        friend void print(std::ostream& out, const Bitset& bf, Bitset::size_type size);
+    };
     
-
     // *****************************************************************************
     //                          SBGBase
     // *****************************************************************************
-
-    struct EVBool
-    {
-	bool e_in_sbg : 1;
-	bool v_in_sbg : 1;
-	bool v_no_exts : 1;
-    };
-
-    inline std::size_t graph_size(const Graph* g)
-    { return std::max(g->num_vertices(), g->num_edges()); }
-
     template<class S> class SBGCreator;
-    template<class S> class SBG_List;
-
+    template<class S> struct Make_SBG_List_Embedding;
+    
     template<class SBG_Derived>
     class SBGBase : private boost::noncopyable
     {
-	friend class SBGCreator<SBG_Derived>;
-	friend class SBG_List<SBG_Derived>;
+        friend class SBGCreator<SBG_Derived>;
+        
+        template<class S>
+        friend struct Make_SBG_List_Embedding;
 
-	const Graph::Edge* edge_;
+        const Graph::Edge* edge_;
 
-	// single linked list of the subgraph edges
+        // single linked list of the subgraph edges
 	const SBG_Derived* parent_;
 
-	unsigned short depth_;
+        unsigned short depth_;
+        
+        Bitset  v_bits_;
+        Bitset  e_bits_;
+        Bitset  v_no_exts_bits_;
 
-	EVBool* ev_array_;
+        const Graph* graph_;
+        
+        // single linked list all SBG in given embedding
+	SBG_Derived* embedding_next_;
 
-	const Graph* graph_;
-
-	// single linked list all SBG in given embedding
-	SBG_Derived* next_embedding_;
-
-	void init_ev_array1(MemAllocator* mem_alloc);
-	void init_ev_array2(MemAllocator* mem_alloc);
-	void free_ev_array(MemAllocator* mem_alloc)
-	    { mem_alloc->dealloc_array(ev_array_, graph_size(get_graph())); }
+        void free_bitsets(MemAllocator* ma)
+            {
+                v_bits_.free_resource(ma, graph_->num_vertices());
+                e_bits_.free_resource(ma, graph_->num_edges());
+                v_no_exts_bits_.free_resource(ma, graph_->num_vertices());
+            }
 
     protected:
-	SBGBase(const Graph::Edge* e, const Graph* g)
-	    :edge_(e), parent_(0), depth_(1), ev_array_(0), graph_(g), next_embedding_(0) {}
+	SBGBase(MemAllocator* ma, const Graph::Edge* e, const Graph* g)
+	    :edge_(e),
+             parent_(0),
+             depth_(1),
+             v_bits_(ma, g->num_vertices()),
+             e_bits_(ma, g->num_edges()),
+             v_no_exts_bits_(ma, g->num_vertices()),
+             graph_(g),
+             embedding_next_(0)
+            {
+                v_bits_.set(e->vi_src(), g->num_vertices());
+                v_bits_.set(e->vi_dst(), g->num_vertices());
+                e_bits_.set(e->eid(), g->num_edges());
+            }
 	
-	SBGBase(const Graph::Edge* e, const SBG_Derived* s)
+	SBGBase(MemAllocator* ma, const Graph::Edge* e, const SBG_Derived* s)
 	    :edge_(e),
 	     parent_(s),
 	     depth_(s->depth_ + 1),
-	     ev_array_(0),
+             v_bits_(ma, s->graph_->num_vertices(), s->v_bits_),
+             e_bits_(ma, s->graph_->num_edges(), s->e_bits_),
+             v_no_exts_bits_(ma, s->graph_->num_vertices(), s->v_no_exts_bits_),
 	     graph_(s->graph_),
-	     next_embedding_(0)
-	    {}
-
+	     embedding_next_(0)
+	    {
+                v_bits_.set(e->vi_src(), graph_->num_vertices());
+                v_bits_.set(e->vi_dst(), graph_->num_vertices());
+                e_bits_.set(e->eid(), graph_->num_edges());
+            }
     public:
-	const Graph::Edge* edge() const		{ return edge_; }
+        const Graph::Edge* edge() const		{ return edge_; }
 	const Graph* get_graph() const		{ return graph_; }
 	const SBG_Derived* parent() const	{ return parent_; }
 	std::size_t num_edges() const		{ return depth_; }
 	unsigned short depth() const		{ return depth_; }
 
-	bool has_vertex(GraphVI v) const	{ return ev_array_[v].v_in_sbg; }
-	bool has_edge(GraphEI e) const		{ return ev_array_[e].e_in_sbg; }
+	bool has_vertex(GraphVI v) const	{ return v_bits_.test(v, graph_->num_vertices()); }
+	bool has_edge(GraphEI e) const		{ return e_bits_.test(e, graph_->num_edges()); }
 	
-	bool has_no_extension(GraphVI v)	{ return ev_array_[v].v_no_exts; }
-	void set_no_has_extension(GraphVI v)	{ ev_array_[v].v_no_exts = true; }
-	void set_has_extension(GraphVI v)	{ ev_array_[v].v_no_exts = false; }
+	bool has_no_extension(GraphVI v)	{ return v_no_exts_bits_.test(v, graph_->num_vertices()); }
+	void set_no_has_extension(GraphVI v)	{ v_no_exts_bits_.set(v, graph_->num_vertices()); }
+	void set_has_extension(GraphVI v)	{ v_no_exts_bits_.clear(v, graph_->num_vertices()); }
 
-	const EVBool* ev_array() const		{ return ev_array_; }
+	SBG_Derived* next_embedding() const	{ return embedding_next_; }
 
-	SBG_Derived* next_embedding() const	{ return next_embedding_; }
+	/*
+	 * true in case of the automorphism
+	 */
+	friend bool operator== (const SBGBase& s1, const SBGBase& s2)
+            {
+                assert(s1.graph_->num_edges() == s2.graph_->num_edges());
+                return Bitset::is_equal(s1.e_bits_, s2.e_bits_, s1.graph_->num_edges());
+            }
     };
-
-    template<class S>
-    const S* parent(const S* sbg, unsigned short depth)
-    {
-	const S* s = sbg;
-	do
-	{
-	    if (depth == s->depth())
-		return s;
-	    s = s->parent();
-	} while (s);
-	return 0;
-    }
-    
-    template<class SBG_Derived>
-    void SBGBase<SBG_Derived>::init_ev_array1(MemAllocator* mem_alloc)
-    {
-	std::size_t ev_size = graph_size(graph_);
-	std::size_t alloc_size = ev_size * sizeof(*ev_array_);
-	ev_array_ = mem_alloc->alloc_array<EVBool>(ev_size);
-	::memset(ev_array_, 0, alloc_size);
-
-        ev_array_[edge_->eid()].e_in_sbg = true;
-        ev_array_[edge_->vi_src()].v_in_sbg = true;
-        ev_array_[edge_->vi_dst()].v_in_sbg = true;
-    }
-
-    template<class SBG_Derived>
-    void SBGBase<SBG_Derived>::init_ev_array2(MemAllocator* mem_alloc)
-    {
-	PREFETCH(*parent_->ev_array_);
-	std::size_t ev_size = graph_size(graph_);
-	std::size_t alloc_size = ev_size * sizeof(*ev_array_);
-	ev_array_ = mem_alloc->alloc_array<EVBool>(ev_size);
-	::memcpy(ev_array_, parent_->ev_array_, alloc_size);
-        ev_array_[edge_->eid()].e_in_sbg = true;
-        ev_array_[edge_->vi_src()].v_in_sbg = true;
-        ev_array_[edge_->vi_dst()].v_in_sbg = true;
-    }
-
 
     // *****************************************************************************
     //                          SBG
     // *****************************************************************************
     class SBG : public SBGBase<SBG>
     {
-	friend class SBGCreator<SBG>;
+        friend class SBGCreator<SBG>;
+        friend struct Make_SBG_List_Autgroup;
+
+        // single linked list
+        SBG* automorph_group_next_;
+
+	// double linked list of the automorphic subgraphs
+	SBG* automorph_next_;
+	SBG* automorph_prev_;
+
+	GraphVI* vi_dfsc_to_graph_;
 
 	DfscVI vi_src_dfsc_;
 	DfscVI vi_dst_dfsc_;
@@ -259,36 +295,28 @@ namespace gSpan
 	// size vi_dfsc_to_graph_ array
 	unsigned short num_vertices_;
 
-	GraphVI* vi_dfsc_to_graph_;
-
-	// double linked list of the automorphic subgraphs
-	SBG* automorph_next_;
-	SBG* automorph_prev_;
-	
-	unsigned short sum_;
-
 	// private ctor and dtor
-	SBG(const Graph::Edge* e, const Graph* g)
-	    :SBGBase<SBG>(e, g),
+	SBG(MemAllocator* ma, const Graph::Edge* e, const Graph* g)
+	    :SBGBase<SBG>(ma, e, g),
+             automorph_group_next_(0),
+	     automorph_next_(this),
+	     automorph_prev_(this),
+	     vi_dfsc_to_graph_(0),
 	     vi_src_dfsc_(0),
 	     vi_dst_dfsc_(1),
-	     num_vertices_(2),
-	     vi_dfsc_to_graph_(0),
+	     num_vertices_(2)
+	    { init_dfsc_to_graph_array1(ma); }
+
+	SBG(MemAllocator* ma, const Graph::Edge* e, const SBG* s, const EdgeCode& ec)
+	    :SBGBase<SBG>(ma, e, s),
+             automorph_group_next_(0),
 	     automorph_next_(this),
 	     automorph_prev_(this),
-	     sum_(e->eid())
-	    {}
-
-	SBG(const Graph::Edge* e, const SBG* s, const EdgeCode& ec)
-	    :SBGBase<SBG>(e, s),
+	     vi_dfsc_to_graph_(0),
 	     vi_src_dfsc_(ec.vi_src()),
 	     vi_dst_dfsc_(ec.vi_dst()),
-	     num_vertices_(s->num_vertices() + ec.is_forward()),
-	     vi_dfsc_to_graph_(0),
-	     automorph_next_(this),
-	     automorph_prev_(this),
-	     sum_(s->sum_ + e->eid())
-	    {}
+	     num_vertices_(s->num_vertices_ + ec.is_forward())
+	    { init_dfsc_to_graph_array2(ma); }
 
 	void init_dfsc_to_graph_array1(MemAllocator* mem_alloc);
 	void init_dfsc_to_graph_array2(MemAllocator* mem_alloc);
@@ -315,96 +343,242 @@ namespace gSpan
 	DfscVI* create_graph_to_dfsc_v(MemAllocator* mem_alloc, DfscVI vi_default);
 	void free_graph_to_dfsc_v(DfscVI*, MemAllocator* mem_alloc);
 
-	static void insert_to_automorph_list(SBG* pos, SBG* s);
-	const SBG* next_automorph() const { return automorph_next_; }
+        static void insert_to_automorph_list(SBG* pos, SBG* s);
+	const SBG* next_automorph() const       { return automorph_next_; }
+        const SBG* next_automorph_group() const { return automorph_group_next_; }
+        SBG* next_automorph_group()             { return automorph_group_next_; }
+        
 
-
-	/*
-	 * true in case of the automorphism
-	 */
-	friend bool operator== (const SBG& s1, const SBG& s2);
-	
 	friend std::ostream& operator<<(std::ostream& out, const SBG& sbg);
     };
 
     void get_chain(std::vector<const SBG*>&, const SBG* sbg);
 
-
     // *****************************************************************************
-    //                          SubgraphsOfGraph
+    //                          specialization SBGCreator
+    //                               for SBG
     // *****************************************************************************
-
-    class SubgraphsOfOneGraph
+    template<>
+    class SBGCreator<SBG>
     {
-	typedef std::vector<SBG*, STL_Allocator<SBG*> > SBGS_PTR;
-	typedef std::set<const SBG*,
-			 std::less<const SBG*>,
-			 STL_Allocator<const SBG*> > SBG_Parents;
-
-	SBGS_PTR sbgs_uniq_ptr_;	
-	SBG_Parents sbg_parents_;
-	mutable bool support_valid_;
-	mutable int support_;
-
-	void calc_support_v(const SBG* slist) const;
-	static void insert_sbgs_uniq_ptr(SBGS_PTR& cont, SBG* s);
+	MemAllocator*	ma_;
+	FixedAllocator*	sbg_alloc_;
     public:
-	explicit
-	SubgraphsOfOneGraph(MemAllocator* mem_alloc)
-	    :sbgs_uniq_ptr_(STL_Allocator<SBG*>(mem_alloc)),
-	     sbg_parents_(std::less<const SBG*>(),
-			  STL_Allocator<const SBG*>(mem_alloc)),
-	     support_valid_(false)
-	    {}
-
-	typedef typename SBGS_PTR::const_iterator const_iterator;
-	const_iterator begin() const	{ return sbgs_uniq_ptr_.begin(); }
-	const_iterator end()   const	{ return sbgs_uniq_ptr_.end(); }
-	std::size_t size() const	{ return sbgs_uniq_ptr_.size(); }
-	int support() const
-	    {
-		assert(support_valid_);
-		assert(support_ > 0);
-		return support_;
-	    }
-
-	// ----------------------------
-	// for internal use
-	// ----------------------------
-	int support(const SBG* slist) const
-	    { if (!support_valid_) calc_support_v(slist); return support_; }
+	explicit SBGCreator(MemAllocator* mem_alloc)
+            :ma_(mem_alloc), sbg_alloc_(ma_->get_fixed_allocator(sizeof(SBG))) {}        
+	MemAllocator* get_mem_allocator() const { return ma_; }
 	
-	bool is_equal_occurrence(const SubgraphsOfOneGraph& prj) const;
+        SBG* new_sbg(const Graph::Edge* e, const Graph* g)
+            { return new (sbg_alloc_->allocate()) SBG(ma_, e, g); }
 
-	void insert(SBG* s);
+	SBG* new_sbg(const Graph::Edge* e, const SBG* s, const EdgeCode& ec)
+            { return new (sbg_alloc_->allocate()) SBG(ma_, e, s, ec); }
+
+	void delete_sbg(SBG* s)
+            {
+                s->free_bitsets(ma_);
+                s->free_dfsc_to_graph_array(ma_);
+                s->~SBG();
+                sbg_alloc_->deallocate(s);
+            }
     };
 
-    
-    
-    class SubgraphsOfManyGraph
-    {
-	typedef const Graph* const Key;
-	typedef SubgraphsOfOneGraph SOG;
-	typedef STL_Allocator<std::pair<Key, SOG> > G_SOG_Allocator;
-	typedef std::map<Key, SOG, std::less<Key>, G_SOG_Allocator> G_SOG;
-	G_SOG g_sog_;
-	std::size_t size_;
-    public:
-	explicit
-	SubgraphsOfManyGraph(MemAllocator* mem_alloc)
-	    :g_sog_(std::less<Key>(), G_SOG_Allocator(mem_alloc)),
-	     size_(0)
-	    {}
 
-	typedef typename G_SOG::iterator iterator;
-	typedef typename G_SOG::const_iterator const_iterator;
-	const_iterator begin() const	{ return g_sog_.begin(); }
-	const_iterator end()   const	{ return g_sog_.end(); }
-	int support() const		{ return g_sog_.size(); }
-	int support(const SBG*) const	{ return g_sog_.size(); }
-	std::size_t size() const	{ return size_; }
-	bool is_equal_occurrence(const SubgraphsOfManyGraph& prj) const;
-	void insert(SBG* s);
+    // *****************************************************************************
+    //                          SBG_List
+    // *****************************************************************************
+    namespace sbg_list_impl
+    {
+        template<class S>
+        class DeletePolicy
+        {
+            SBGCreator<S>* sbg_creator_;
+        public:
+            DeletePolicy(SBGCreator<S>* sbg_creator) :sbg_creator_(sbg_creator) {}
+            void operator() (S* s) { sbg_creator_->delete_sbg(s); }
+        };
+
+        class DoNothing {};
+
+        template<class S, class S2, S* (S2::*mp_next), class DelPolicy>
+        class SBG_List : private boost::noncopyable
+        {
+            S* lh_;
+            std::size_t size_;
+            DelPolicy del_policy_;
+
+            void clear(DeletePolicy<S>)
+                {
+                    S* p = lh_;
+                    while (p)
+                    {
+                        S* next = p->*mp_next;
+                        del_policy_(p);
+                        p = next;
+                    }
+                    lh_ = 0;
+                    size_ = 0;
+                }
+
+            void clear(DoNothing)           {}
+        public:
+            explicit SBG_List(DelPolicy del_policy = DelPolicy()) :lh_(0), size_(0), del_policy_(del_policy)    {}
+            ~SBG_List()                     { clear(); }
+            void clear()                    { clear(del_policy_); }
+            void insert(S* s)               { s->*mp_next = lh_; lh_ = s; ++size_; }
+            const S* first() const          { return lh_; }
+            S* first()                      { return lh_; }
+            std::size_t size() const        { return size_; }
+            bool empty() const              { return size_ == 0; }
+
+            friend std::ostream& operator<<(std::ostream& out, const SBG_List<S,S2,mp_next,DelPolicy>& li)
+                {
+                    for (const S* s = li.first(); s; s = s->*mp_next) out << '\t' << *s << std::endl;
+                    return out;
+                }
+        };
+    } // end: namespace sbg_list_impl
+
+    template<class S>
+    struct Make_SBG_List_Embedding {
+        typedef SBGBase<S> S2;
+        typedef sbg_list_impl::SBG_List<S, S2, &S2::embedding_next_, sbg_list_impl::DeletePolicy<S> > Type;
+    };
+
+    struct Make_SBG_List_Autgroup {
+        typedef sbg_list_impl::SBG_List<SBG, SBG, &SBG::automorph_group_next_, sbg_list_impl::DoNothing> Type;
+    };
+
+
+    // *****************************************************************************
+    //                          Intrusive Set
+    // *****************************************************************************
+    template<class Key, class SG, class Cmp = std::less<Key> >
+    class SetNode : public SG
+    {
+        Key key_;
+    public:
+        SetNode(const Key& key, SBGCreator<SBG>* sbg_creator)
+            :SG(sbg_creator), key_(key) {}
+        
+        const Key& get_key() const { return key_; }
+        
+        typedef boost::intrusive::set_member_hook<
+            //boost::intrusive::link_mode<boost::intrusive::normal_link>,
+            boost::intrusive::optimize_size<true>
+            > SetHook;
+        SetHook set_hook;
+        
+        typedef boost::intrusive::member_hook<SetNode, SetHook, &SetNode::set_hook> SetOptions;
+
+        friend bool operator< (const SetNode& n1, const SetNode& n2)
+            { Cmp cmp; return cmp(n1.key_, n2.key_); }
+            
+        struct CompareKey
+        {
+            bool operator() (const Key& key, const SetNode& node) const
+                { Cmp cmp; return cmp(key, node.key_); }
+            
+            bool operator() (const SetNode& node, const Key& key) const
+                { Cmp cmp; return cmp(node.key_, key); }
+        };
+        friend struct CompareKey;
+
+        typedef Cmp Compare;
+    };
+    
+    template<class T, bool const_time_size, class size_type>
+    class Set
+        : public boost::intrusive::set<T,
+                                       typename T::SetOptions,
+                                       boost::intrusive::constant_time_size<const_time_size>,
+                                       boost::intrusive::size_type<size_type>,
+                                       boost::intrusive::compare<typename T::Compare>
+                                       >
+    {};
+
+    template<class T>
+    class Set<T,false,void>
+        : public boost::intrusive::set<T,
+                                       typename T::SetOptions,
+                                       boost::intrusive::constant_time_size<false>,
+                                       boost::intrusive::compare<typename T::Compare>
+                                       >
+    {};
+    
+
+    // *****************************************************************************
+    //                          SubgraphsOfOneGraph
+    // *****************************************************************************
+    class SubgraphsOfOneGraph : private boost::noncopyable
+    {
+        typedef typename Make_SBG_List_Embedding<SBG>::Type     List_Embedding;
+        typedef Make_SBG_List_Autgroup::Type                    List_Autgroup;
+        List_Embedding  list_sbg_all_;
+        List_Autgroup   list_sbg_autgroup_;
+        mutable support_type support_;
+        void calc_support() const;
+    public:
+        explicit SubgraphsOfOneGraph(SBGCreator<SBG>* sbg_creator)
+            :list_sbg_all_(sbg_creator), support_(0)
+            {}
+
+        const SBG* first_all() const            { return list_sbg_all_.first(); }
+        const SBG* first_autgroup() const       { return list_sbg_autgroup_.first(); }
+        SBG* first_all()                        { return list_sbg_all_.first(); }
+        SBG* first_autgroup()                   { return list_sbg_autgroup_.first(); }
+        
+        std::size_t size_list_all() const       { return list_sbg_all_.size(); }
+        std::size_t size_list_autgroup() const  { return list_sbg_autgroup_.size(); }
+
+        const Graph* get_graph() const          { return first_all()->get_graph(); }
+        support_type support() const            { if (0 == support_) calc_support(); return support_; }
+        bool is_equal_occurence(const SubgraphsOfOneGraph& parent) const;
+
+        void insert(SBG* s);
+
+        friend std::ostream& operator<<(std::ostream& out, const SubgraphsOfOneGraph& sog)
+            {
+                return out << sog.list_sbg_all_;
+            }
+    };
+
+    // *****************************************************************************
+    //                          SubgraphsOfManyGraph
+    // *****************************************************************************
+    class SubgraphsOfManyGraph : private boost::noncopyable
+    {
+        typedef SetNode<const Graph*, SubgraphsOfOneGraph> SOG;
+        typedef Set<SOG, true, support_type> SOGSet;
+
+        SOGSet set_;
+        FixedAllocator* fa_;
+        SBGCreator<SBG>* sbg_creator_;
+        std::size_t size_list_all_;
+    public:
+        explicit SubgraphsOfManyGraph(SBGCreator<SBG>* sbg_creator);
+        ~SubgraphsOfManyGraph();
+
+        void insert(SBG* s);
+
+        typedef SOGSet::const_iterator  const_iterator;
+        typedef SOGSet::iterator        iterator;
+        const_iterator begin() const    { return set_.begin(); }
+        const_iterator end() const      { return set_.end(); }
+        iterator begin()                { return set_.begin(); }
+        iterator end()                  { return set_.end(); }
+        
+        std::size_t size_list_all() const       { return size_list_all_; }
+
+        support_type support() const    { return set_.size(); }
+        bool is_equal_occurence(const SubgraphsOfManyGraph&) const;
+
+        friend std::ostream& operator<<(std::ostream& out, const SubgraphsOfManyGraph& smg)
+            {
+                for (const_iterator it = smg.begin(); it != smg.end(); ++it)
+                    out << *it;
+                return out;
+            }
     };
 
     // *****************************************************************************
@@ -418,9 +592,9 @@ namespace gSpan
 	virtual void operator() (const DFSCode& dfsc, const SubgraphsOfManyGraph& smg) {}
     };
 
-    
-    void closegraph(const Graph& graph, int minsup, GspanResult* result, int max_trace_depth = 0);
-    void closegraph(const std::vector<const Graph*>&, int minsup, GspanResult* result, int max_trace_depth = 0);
+
+    void closegraph(const Graph& graph, support_type minsup, GspanResult* result, int max_trace_depth = 0);
+    void closegraph(const std::vector<const Graph*>&, support_type minsup, GspanResult* result, int max_trace_depth = 0);
 
 }
 
