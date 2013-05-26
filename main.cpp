@@ -63,11 +63,12 @@ void Result::operator() (const DFSCode& dfsc, const SubgraphsOfManyGraph& smg)
     {
 	for (SubgraphsOfManyGraph::const_iterator i = smg.begin(); i != smg.end(); ++i)
 	{
-	    ostr << "#tograph: " << wrk_graphs.names[i->get_graph()] << std::endl;
+	    ostr << "\n#tograph: " << wrk_graphs.names[i->get_graph()] << std::endl;
 	    print_mapping(dfsc, *i);
 	}
     }
-
+    else
+        if (!inline_view) ostr << std::endl;
     ostr << std::endl;
 }
 
@@ -139,7 +140,7 @@ void Result::print_info(const SubgraphsOfManyGraph& smg) const
 	for (SubgraphsOfManyGraph::const_iterator it = smg.begin(); it != smg.end(); ++it)
 	    ostr << " " << wrk_graphs.names[it->get_graph()];
     }
-    ostr << std::endl;
+    //ostr << std::endl;
 }
 
 void Result::print_info(const SubgraphsOfOneGraph& sog) const

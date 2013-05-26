@@ -265,6 +265,10 @@ namespace gSpan
         int operator[] (int i) const    { return rmpath_i_ec_[i]; }
         int num_edges() const		{ return rmpath_i_ec_.size(); }
         int rightmost_edgeindex() const { return rmpath_i_ec_[0]; }
+        bool is_rightmost_edgeindex(int i) const
+            {
+                return std::find(rmpath_i_ec_.begin(), rmpath_i_ec_.end(), i) != rmpath_i_ec_.end();
+            }
 
         DfscVI rightmost_vertex() const { return dfsc_vertices_[0]; }
 
@@ -416,7 +420,7 @@ namespace gSpan
 
         mutable const Graph::Edge** edge_array_;
     public:
-        const Graph::Edge* find_edge(std::size_t depth, MemAllocator*) const;
+        const Graph::Edge* find_edge(std::size_t depth, MemAllocator*) const NOINLINE;
         void free_edge_array(MemAllocator* ma)
             { if (edge_array_) { ma->dealloc_array(edge_array_, num_edges()); edge_array_ = 0; } }
     };
@@ -529,7 +533,7 @@ namespace gSpan
         get_chain(chain, &sbg);
         out << "sbg:";
         for (std::size_t i = 0; i < chain.size(); ++i)
-            out << " " << chain[i]->edge();
+            out << " " << *chain[i]->edge();
         return out;
     }
 
@@ -683,10 +687,9 @@ namespace gSpan
         while (it != set_.end())
         {
             SOG* p = &*it;
-            set_.erase(it);
+            set_.erase(it++);
             p->~SOG();
             fa_->deallocate(p);
-            ++it;
         }
     }
 
@@ -702,6 +705,8 @@ namespace gSpan
 
     bool SubgraphsOfManyGraph::is_equal_occurence(const SubgraphsOfManyGraph& parent) const
     {
+        if (support() != parent.support())
+            return false;
         for (const_iterator it = begin(); it != end(); ++it)
         {
             const SOG& node = *parent.set_.find(it->get_graph(), SOG::CompareKey());
@@ -1308,7 +1313,7 @@ namespace gSpan
         cerr << "--------------------------\n";
         for (unsigned int i = 0; i < frame->depth; ++i)
             cerr << i+1 << ":\t"
-                 << (find(frame->rmpath.begin(),frame->rmpath.end(), i) != frame->rmpath.end() ? "*" : " ")
+                 << (frame->rmpath.is_rightmost_edgeindex(i) ? "*" : " ")
                  << shared->dfsc[i]
                  << endl;
         cerr << "--------------------------\n";

@@ -16,6 +16,10 @@
 #define BR asm volatile ("int3;")
 #endif
 
+#ifndef NOINLINE
+#define NOINLINE __attribute__((noinline))
+#endif
+
 #if defined(USE_ASM)
 #define PREFETCH(addr)  asm("prefetcht0 %0\n" : :"m"((addr)))
 #else
