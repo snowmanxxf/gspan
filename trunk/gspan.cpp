@@ -990,7 +990,7 @@ namespace gSpan
         typedef std::vector<RChild, STL_Allocator<RChild> > RChildren;
         typedef typename RChildren::const_iterator RChildIter;
         RChildren children;
-	
+
         FrameState* prev_state;
         const std::size_t depth;
 

@@ -1,4 +1,4 @@
-CFLAGS := -O3 -g -Wall -march=amdfam10 -save-temps
+CFLAGS := -O3 -p -g -Wall -march=amdfam10 -save-temps
 CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL 
 CFLAGS += -DGSPAN_WITH_STATISTICS
 CFLAGS += -DGSPAN_TRACE
