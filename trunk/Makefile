@@ -1,10 +1,10 @@
-CFLAGS := -O3 -p -g -Wall -march=amdfam10 -save-temps
+CFLAGS := -O3 -g -Wall -march=amdfam10 -save-temps
 CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL 
 CFLAGS += -DGSPAN_WITH_STATISTICS
 CFLAGS += -DGSPAN_TRACE
 #CFLAGS += -DCHECK_MODE
 CFLAGS += -DDEBUG_PRINT
-#CFLAGS += -DNDEBUG
+CFLAGS += -DNDEBUG
 #CFLAGS += -DTYPE_CHECK
 CFLAGS += -DUSE_ASM
 
@@ -29,6 +29,7 @@ gspan_graph.o: gspan_graph.hpp gspan_graph.cpp
 gspan_allocator.o: gspan_allocator.hpp gspan_allocator.cpp
 	g++ ${CFLAGS} -c gspan_allocator.cpp -o gspan_allocator.o
 
+VALGRIND_FILES := cachegrind.out.* callgrind.out.* massif.out.*
 
 clean:
-	rm -f *.o *.ii *.s *.gcda gmon.out libgspan.a closegraph
+	rm -f *.o *.ii *.s *.gcda gmon.out libgspan.a closegraph ${VALGRIND_FILES}
