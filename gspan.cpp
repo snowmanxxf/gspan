@@ -7,8 +7,6 @@
 
 namespace gSpan
 {
-    bool br = false;
-
     enum ExtType { EXT_X, EXT_R, EXT_NONE };
     
 #ifdef GSPAN_WITH_STATISTICS
@@ -696,6 +694,13 @@ namespace gSpan
         r.first->insert(s);
     }
 
+    const SubgraphsOfOneGraph& SubgraphsOfManyGraph::find(const Graph* g) const
+    {
+        const_iterator it = set_.find(g, SOG::CompareKey());
+        assert(it != set_.end());
+        return *it;
+    }
+
     bool SubgraphsOfManyGraph::is_equal_occurence(const SubgraphsOfManyGraph& parent) const
     {
         if (support() != parent.support())
@@ -709,8 +714,19 @@ namespace gSpan
         return true;
     }
 
+
     // *****************************************************************************
     //                          Extension
+    //                         list version
+    // *****************************************************************************
+    
+
+
+
+
+    // *****************************************************************************
+    //                          Extension
+    //                         set version
     // *****************************************************************************
 
     // SG       : SubgraphsOfOneGraph or SubgraphsOfManyGraph
@@ -1394,9 +1410,11 @@ namespace gSpan
         }
     }
 
+
     // -----------------------------------
     //	closegraph
     // -----------------------------------
+
 
     template<class SG>
     void enumerate_sog(FrameState<SG>* frame, SharedData* shared, SubgraphsOfOneGraph& sg)
@@ -1514,10 +1532,14 @@ namespace gSpan
 
     }
 
+
+
     void enumerate(FrameState<SubgraphsOfOneGraph>* frame, SharedData* shared)
     {
         enumerate_sog(frame, shared, *frame->sg);
     }
+
+
 
     void enumerate(FrameState<SubgraphsOfManyGraph>* frame, SharedData* shared)
     {
@@ -1525,6 +1547,8 @@ namespace gSpan
         for (SubgraphsOfManyGraph::iterator it = smg->begin(); it != smg->end(); ++it)
             enumerate_sog(frame, shared, *it);
     }
+
+
 
     template<class Ext>
     void remove_not_frequents(Ext& ext, support_type minsup)
@@ -1565,13 +1589,14 @@ namespace gSpan
         EdgeList(const Graph::Edge* e = 0, const EdgeList* p = 0) :edge(e), prev(p) {}
     };
 
+
+
     bool is_path_minimum(const EdgeList* path, const SBG* s_ext, const DfscVI* graph_to_dfsc_ori,
                          const et_param<SubgraphsOfOneGraph>* param)
     {
         DfscVI vi_first = graph_to_dfsc_ori[path->edge->vi_dst()];
         DfscVI vi_second = param->rmpath_ori->rightmost_vertex() + 1;
         
-        // vi_start_ext is rmpath vertex
         assert(vi_first != VI_NULL);
         assert(param->rmpath_ori->is_rightmost_vertex(vi_first));
         
@@ -1594,6 +1619,7 @@ namespace gSpan
         
         return ism;
     }
+
 
 
     bool exist_path_minimum(const SBG* s_ext, const et_param<SubgraphsOfOneGraph>* param)
@@ -1678,6 +1704,8 @@ namespace gSpan
         return ret;
     }
 
+
+
     bool fail_early_termination(const et_param<SubgraphsOfOneGraph>* param)
     {
         if (param->ec_ext->is_forward())
@@ -1699,26 +1727,38 @@ namespace gSpan
 
     bool fail_early_termination(const et_param<SubgraphsOfManyGraph>* param)
     {
-        return true;
+        et_param<SubgraphsOfOneGraph> psog;
+        psog.ec_ext = param->ec_ext;
+        psog.dfsc_ori = param->dfsc_ori;
+        psog.rmpath_ori = param->rmpath_ori;
+        psog.sbgsimple_creator = param->sbgsimple_creator;
+        psog.exttype = param->exttype;
+
+        const SubgraphsOfManyGraph& smg = *param->sg_ext;
+        for (SubgraphsOfManyGraph::const_iterator i = smg.begin(); i != smg.end(); ++i)
+        {
+            psog.sg_ext = &*i;
+            psog.sg_ori = &param->sg_ori->find(i->get_graph());
+            if (fail_early_termination(&psog))
+                return true;
+        }
+        return false;
     }
     
+
 
     template<class SG, class Compare>
     void detect_et(FrameState<SG>* frame, SharedData* shared,
                    SetNode<EdgeCode, SG, Compare>& ext_sg,
                    bool equiv, ExtType exttype)
     {
-        if (br)
-            ;//BR;
-
 #ifdef CHECK_MODE
         if (frame->TERMINATED_BRANCH)
             return;
 #endif
-        if (frame->early_term)
-            return;
-
         if (!equiv)
+            return;
+        if (frame->early_term)
             return;
 
         et_param<SG> param;
@@ -1738,43 +1778,17 @@ namespace gSpan
         else
             shared->on_early_term_b(exttype);            
 
-        frame->early_term = true;
         assert(frame->exttype_early_term == EXT_NONE);
+        frame->early_term = true;
         frame->exttype_early_term = exttype;
         frame->ec_early_term = &ext_sg.get_key();
         frame->sg_ext_early_term = &ext_sg;
-
-        /*
-        if (equiv && !frame->early_term)
-        {
-            if (ext_sg.get_key().is_forward())
-            {
-                frame->early_term = ! fail_et(ext_sg, frame->rmpath, &shared->mem_alloc, exttype);
-                if (frame->early_term)
-                    shared->on_early_term_f(exttype);
-            }
-            else
-            {
-                if (exttype == EXT_R)
-                    frame->early_term = true;
-                else
-                    frame->early_term = ext_sg.size_list_all() == frame->sg->size_list_all();
-                //frame->early_term = true;
-
-                if (frame->early_term)
-                    shared->on_early_term_b(exttype);
-            }
-
-            if (frame->early_term)
-            {
-                assert(frame->exttype_early_term == EXT_NONE);
-                frame->exttype_early_term = exttype;
-                frame->ec_early_term = &ext_sg.get_key();
-                frame->sg_ext_early_term = &ext_sg;
-            }
-        }
-        */
     }
+
+
+    // -----------------------------------
+
+
 
     template<class SG, class Compare>
     void detect_nc(FrameState<SG>* frame, const SetNode<EdgeCode, SG, Compare>& ext_sg, bool equiv, ExtType exttype)
@@ -1788,6 +1802,8 @@ namespace gSpan
             frame->sg_ext_notclose = &ext_sg;
         }
     }
+
+
 
     template<class SG>
     void project(SharedData* shared, FrameState<SG>* parent_frame, SG* sg_parent)
@@ -1806,8 +1822,6 @@ namespace gSpan
         
         enumerate(&frame, shared);
         remove_not_frequents(frame.r_edges, shared->minsup_);
-
-        br = frame.id == 1607985;
 
         for (XEIter it = frame.x_edges.begin(); it != frame.x_edges.end(); ++it)
         {
