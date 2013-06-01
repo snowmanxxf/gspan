@@ -16,6 +16,10 @@
 #define BR asm volatile ("int3;")
 #endif
 
+#ifndef SERIALIZE
+#define SERIALIZE       asm volatile ("xor %%eax, %%eax; cpuid;" : : : "eax", "ebx", "ecx", "edx")
+#endif
+
 #ifndef NOINLINE
 #define NOINLINE __attribute__((noinline))
 #endif
@@ -29,7 +33,6 @@
 namespace gSpan
 {
     typedef unsigned int support_type;
-    const support_type SUPPORT_VOID = 0U;
 
     // *****************************************************************************
     //                          EdgeCode
@@ -71,6 +74,7 @@ namespace gSpan
         EdgeCode()
             :is_fwd_(false)
             {
+                assert(is_aligned(this));
                 x_[VI_SRC_I] = x_[VI_DST_I] = VI_NULL;
                 x_[VL_SRC_I] = x_[VL_DST_I] = VL_NULL;
                 x_[EL_I] = EL_NULL;
@@ -80,6 +84,7 @@ namespace gSpan
         EdgeCode(DfscVI vi_src, DfscVI vi_dst, VL vl_src, EL el, VL vl_dst, bool fwd)
             :is_fwd_(fwd)
             {
+                assert(is_aligned(this));
                 x_[VI_SRC_I] = vi_src; x_[VI_DST_I] = vi_dst;
                 x_[VL_SRC_I] = vl_src; x_[VL_DST_I] = vl_dst;
                 x_[EL_I] = el;
@@ -117,7 +122,7 @@ namespace gSpan
         EdgeCode operator- () const { EdgeCode ec(*this); ec.chgdir(); return ec; }
         bool operator!= (const EdgeCode& ec) const      { return ! (*this == ec); }
         bool operator== (const EdgeCode& ec) const;
-    };
+    } __attribute__ ((aligned));
 
     struct EdgeCodeCmpDfs
     {
@@ -133,9 +138,13 @@ namespace gSpan
     // *****************************************************************************
     //                          DFSCode
     // *****************************************************************************
+
+    // for dfsc check minimality, we use std::vector as DFSCode
+    typedef std::vector<EdgeCode> EdgeCodeVector;
+
     class DFSCode
     {
-        std::vector<EdgeCode> dfsc_;
+        EdgeCodeVector dfsc_;
         Graph graph_;
     public:
         DFSCode(std::size_t max_num_vertices, std::size_t max_num_edges)
@@ -151,7 +160,57 @@ namespace gSpan
         void pop()                      { dfsc_.pop_back(); graph_.pop_edge(); }
         const EdgeCode& operator[] (std::size_t i) const { return dfsc_[i]; }
         const Graph& get_graph() const  { return graph_; }
+        const EdgeCodeVector& get_ecvector() const { return dfsc_; }
     };
+
+    // *****************************************************************************
+    //                          RMPath
+    // *****************************************************************************
+    class RMPath : private boost::noncopyable
+    {
+        typedef std::vector<int, STL_Allocator<int> >	RMPath_I_EdgeCode;
+        typedef std::vector<DfscVI, STL_Allocator<DfscVI> >	DfscVI_Vertices;
+
+        RMPath_I_EdgeCode       rmpath_i_ec_;
+        DfscVI_Vertices         dfsc_vertices_;
+        std::size_t             n_rmp_;
+
+        static std::size_t make_rmpath(RMPath_I_EdgeCode& rmpath_i_ec,
+                                       DfscVI_Vertices& dfsc_vertices,
+                                       const EdgeCodeVector& dfsc);
+    public:
+
+        RMPath(const EdgeCodeVector& dfsc, MemAllocator* mem_alloc)
+	    :rmpath_i_ec_(STL_Allocator<int>(mem_alloc)),
+	     dfsc_vertices_(STL_Allocator<DfscVI>(mem_alloc))
+	    {
+		rmpath_i_ec_.reserve(dfsc.size());
+		n_rmp_ = make_rmpath(rmpath_i_ec_, dfsc_vertices_, dfsc);
+	    }
+        
+        typedef DfscVI_Vertices::const_iterator const_iterator;
+        
+        const_iterator begin() const            { return dfsc_vertices_.begin(); }
+        const_iterator rmp_end() const          { return dfsc_vertices_.begin() + n_rmp_; }
+        const_iterator end() const              { return dfsc_vertices_.end(); }
+
+        std::size_t num_all_vertices() const    { return dfsc_vertices_.size(); }
+        std::size_t num_rmp_vertices() const    { return n_rmp_; }
+
+        int operator[] (int i) const    { return rmpath_i_ec_[i]; }
+        int num_edges() const		{ return rmpath_i_ec_.size(); }
+        int rightmost_edgeindex() const { return rmpath_i_ec_[0]; }
+        bool is_rightmost_edgeindex(int i) const
+            {
+                return std::find(rmpath_i_ec_.begin(), rmpath_i_ec_.end(), i) != rmpath_i_ec_.end();
+            }
+
+        bool is_rightmost_vertex(DfscVI vi) const;
+        DfscVI rightmost_vertex() const { return dfsc_vertices_[0]; }
+
+        friend std::ostream& operator<<(std::ostream& out, const RMPath& r);
+    };
+
 
     // *****************************************************************************
     //                          Bitset
@@ -234,6 +293,8 @@ namespace gSpan
                 v_bits_.set(e->vi_src(), g->num_vertices());
                 v_bits_.set(e->vi_dst(), g->num_vertices());
                 e_bits_.set(e->eid(), g->num_edges());
+
+                assert(is_aligned(this));
             }
 	
 	SBGBase(MemAllocator* ma, const Graph::Edge* e, const SBG_Derived* s)
@@ -249,6 +310,8 @@ namespace gSpan
                 v_bits_.set(e->vi_src(), graph_->num_vertices());
                 v_bits_.set(e->vi_dst(), graph_->num_vertices());
                 e_bits_.set(e->eid(), graph_->num_edges());
+
+                assert(is_aligned(this));
             }
     public:
         const Graph::Edge* edge() const		{ return edge_; }
@@ -344,8 +407,8 @@ namespace gSpan
 	// array of the dfsc VI, indexed by the graph VI
 	// so, sbg_vertices[graph_vi] == dfsc vi
 	//
-	DfscVI* create_graph_to_dfsc_v(MemAllocator* mem_alloc, DfscVI vi_default);
-	void free_graph_to_dfsc_v(DfscVI*, MemAllocator* mem_alloc);
+	DfscVI* create_graph_to_dfsc_v(MemAllocator* mem_alloc, DfscVI vi_default = VI_NULL) const;
+	void free_graph_to_dfsc_v(DfscVI*, MemAllocator* mem_alloc) const;
 
         static void insert_to_automorph_list(SBG* pos, SBG* s);
 	const SBG* next_automorph() const       { return automorph_next_; }
@@ -468,7 +531,7 @@ namespace gSpan
         const Key& get_key() const { return key_; }
         
         typedef boost::intrusive::set_member_hook<
-            //boost::intrusive::link_mode<boost::intrusive::normal_link>,
+            boost::intrusive::link_mode<boost::intrusive::normal_link>,
             boost::intrusive::optimize_size<true>
             > SetHook;
         SetHook set_hook;

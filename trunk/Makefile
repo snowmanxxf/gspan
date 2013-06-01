@@ -1,15 +1,20 @@
-CFLAGS := -O3 -g -Wall -march=amdfam10 -save-temps
+
+CFLAGS := -O3 -g -Wall -march=amdfam10 -save-temps #-fno-inline
+
+CFLAGS += -falign-loops -fprefetch-loop-arrays -freg-struct-return
+CFLAGS += -fschedule-insns -fsched-pressure
+
+#CFLAGS +=  -fprofile-generate
+#CFLAGS +=  -fprofile-use
+
 CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL 
 CFLAGS += -DGSPAN_WITH_STATISTICS
 CFLAGS += -DGSPAN_TRACE
 #CFLAGS += -DCHECK_MODE
-CFLAGS += -DDEBUG_PRINT
-CFLAGS += -DNDEBUG
+#CFLAGS += -DDEBUG_PRINT
+#CFLAGS += -DNDEBUG
 #CFLAGS += -DTYPE_CHECK
 CFLAGS += -DUSE_ASM
-
-#CFLAGS +=  -fprofile-generate
-#CFLAGS +=  -fprofile-use
 
 # test programm
 closegraph: main.cpp misc.hpp read_input.cpp gspan.hpp libgspan.a

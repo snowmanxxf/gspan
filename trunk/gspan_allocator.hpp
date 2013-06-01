@@ -11,6 +11,13 @@
 
 namespace gSpan
 {
+    inline bool is_aligned(const void* ptr, uintptr_t align = sizeof(void*))
+    {
+        uintptr_t ptrval = reinterpret_cast<uintptr_t>(ptr);
+        uintptr_t a = align - uintptr_t(1);
+        return uintptr_t(0) == (ptrval & a);
+    }
+
     class FixedAllocator
     {
 	std::vector<void*> free_ptrs_; // stack
