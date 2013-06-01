@@ -634,6 +634,7 @@ namespace gSpan
         const_iterator end() const      { return set_.end(); }
         iterator begin()                { return set_.begin(); }
         iterator end()                  { return set_.end(); }
+        const SubgraphsOfOneGraph& find(const Graph*) const;
         
         std::size_t size_list_all() const       { return size_list_all_; }
 
