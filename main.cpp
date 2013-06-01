@@ -1,5 +1,6 @@
 #include "misc.hpp"
 #include <fstream>
+
 enum PatternViewMode { PV_LG, PV_DFSC, PV_EDGE} pattern_view_mode;
 enum MappingViewMode { MV_NONE, MV_TABLE, MV_MAP } mapping_view_mode;
 bool inline_view;
@@ -76,10 +77,10 @@ void Result::operator() (const DFSCode& dfsc, const SubgraphsOfManyGraph& smg)
 void Result::print_pattern(const DFSCode& dfsc) const
 {
     std::map<DfscVI,std::string> vlm;
-    BOOST_FOREACH(const EdgeCode& ec, dfsc)
+    for (DFSCode::const_iterator dfsc_i = dfsc.begin(); dfsc_i != dfsc.end(); ++dfsc_i)
     {
-	if (ec.vl_src() != VL_NULL) vlm[ec.vi_src()] = vlabs[ec.vl_src()];
-	if (ec.vl_dst() != VL_NULL) vlm[ec.vi_dst()] = vlabs[ec.vl_dst()];
+	if (dfsc_i->vl_src() != VL_NULL) vlm[dfsc_i->vi_src()] = vlabs[dfsc_i->vl_src()];
+	if (dfsc_i->vl_dst() != VL_NULL) vlm[dfsc_i->vi_dst()] = vlabs[dfsc_i->vl_dst()];
     }
 
     switch (pattern_view_mode)
@@ -88,14 +89,15 @@ void Result::print_pattern(const DFSCode& dfsc) const
 	ostr << "t # " << num_patterns << std::endl;
 	for (typename std::map<DfscVI,std::string>::const_iterator i = vlm.begin(); i != vlm.end(); ++i)
 	    ostr << "v " << i->first << " " << i->second << std::endl;
-	BOOST_FOREACH(const EdgeCode& ec, dfsc)
-	    ostr << "e " << ec.vi_src() << " " << ec.vi_dst() << " " << elabs[ec.el()] << std::endl;
+        for (DFSCode::const_iterator dfsc_i = dfsc.begin(); dfsc_i != dfsc.end(); ++dfsc_i)
+	    ostr << "e " << dfsc_i->vi_src() << " " << dfsc_i->vi_dst() << " " << elabs[dfsc_i->el()] << std::endl;
 	break;
 	
     case PV_DFSC:
 	ostr << "#pattern: " << num_patterns << std::endl;
-	BOOST_FOREACH(const EdgeCode& ec, dfsc)
+        for (DFSCode::const_iterator dfsc_i = dfsc.begin(); dfsc_i != dfsc.end(); ++dfsc_i)
 	{
+            const EdgeCode& ec = *dfsc_i;
 	    ostr << '\t';
 	    ostr << "(" << ec.vi_src() << "," << ec.vi_dst() << ", "
 		 << vlm[ec.vi_src()] << "," << ec.el() << "," << vlm[ec.vi_dst()] << ")" << std::endl;
@@ -104,8 +106,9 @@ void Result::print_pattern(const DFSCode& dfsc) const
 	
     case PV_EDGE:
 	ostr << "#pattern: " << num_patterns << " : ";
-	BOOST_FOREACH(const EdgeCode& ec, dfsc)
+        for (DFSCode::const_iterator dfsc_i = dfsc.begin(); dfsc_i != dfsc.end(); ++dfsc_i)
 	{
+            const EdgeCode& ec = *dfsc_i;
 	    ostr << "(" << ec.vi_src() << "," << ec.vi_dst() << ", "
 		 << vlm[ec.vi_src()] << "," << elabs[ec.el()] << "," << vlm[ec.vi_dst()] << ") ";
 	}
@@ -359,8 +362,9 @@ int main(int argc, char** argv)
     
     std::map<std::string, int> vlab_counts;
     std::map<std::string, int> elab_counts;
-    BOOST_FOREACH(const InputGraph& ig, input_graphs)
+    for (std::list<InputGraph>::const_iterator iter = input_graphs.begin(); iter != input_graphs.end(); ++iter)
     {
+        const InputGraph& ig = *iter;
 	for (std::map<int,std::string>::const_iterator i = ig.vl.begin(); i != ig.vl.end(); ++i)
 	    ++vlab_counts[i->second];
 	for (std::vector<InputGraph::E>::const_iterator i = ig.edges.begin(); i != ig.edges.end(); ++i)

@@ -1,14 +1,16 @@
 #include "gspan.hpp"
 
-#include <boost/foreach.hpp>
-
 #include <list>
-#include <queue>
 #include <algorithm>
 #include <climits>
+#include <cstring>
 
 namespace gSpan
 {
+    bool br = false;
+
+    enum ExtType { EXT_X, EXT_R, EXT_NONE };
+    
 #ifdef GSPAN_WITH_STATISTICS
     // *****************************************************************************
     //                         Statistics
@@ -62,6 +64,8 @@ namespace gSpan
     // *****************************************************************************
     bool EdgeCode::operator== (const EdgeCode& ec) const
     {
+        assert(is_aligned(this));
+        assert(is_aligned(&ec));
         return !
             ((vi_src()^ec.vi_src()) | (vi_dst()^ec.vi_dst()) |
              (vl_src()^ec.vl_src()) | (vl_dst()^ec.vl_dst()) | (el()^ec.el()));
@@ -78,6 +82,9 @@ namespace gSpan
     // *****************************************************************************
     bool EdgeCodeCmpDfs::operator() (const EdgeCode& ec1, const EdgeCode& ec2) const
     {
+        assert(is_aligned(&ec1));
+        assert(is_aligned(&ec2));
+
         bool ec1_f = ec1.is_forward();
         bool ec2_f = ec2.is_forward();
 
@@ -116,6 +123,9 @@ namespace gSpan
     // *****************************************************************************
     bool EdgeCodeCmpLex::operator() (const EdgeCode& ec1, const EdgeCode& ec2) const
     {
+        assert(is_aligned(&ec1));
+        assert(is_aligned(&ec2));
+
 #if defined(USE_ASM)
 #if defined(__x86_64__)
         // 64 bit
@@ -193,9 +203,9 @@ namespace gSpan
     //
     // return: rmpath vertices number
     //
-    template<class DFSC>
-    std::size_t
-    make_rmpath(RMPath_I_EdgeCode& rmpath_i_ec, DfscVI_Vertices& dfsc_vertices, const DFSC& dfsc)
+    std::size_t RMPath::make_rmpath(RMPath_I_EdgeCode& rmpath_i_ec,
+                                    DfscVI_Vertices& dfsc_vertices,
+                                    const EdgeCodeVector& dfsc)
     {
         // until first forward edge
         signed int idx = dfsc.size();
@@ -238,42 +248,24 @@ namespace gSpan
         return n_rmp;
     }
 
-    class RMPath : private boost::noncopyable
+
+    bool RMPath::is_rightmost_vertex(DfscVI vi) const
     {
-        RMPath_I_EdgeCode       rmpath_i_ec_;
-        DfscVI_Vertices         dfsc_vertices_;
-        std::size_t             n_rmp_;
-    public:
-	template<class DFSC>
-        RMPath(const DFSC& dfsc, MemAllocator* mem_alloc)
-	    :rmpath_i_ec_(STL_Allocator<int>(mem_alloc)),
-	     dfsc_vertices_(STL_Allocator<DfscVI>(mem_alloc))
-	    {
-		rmpath_i_ec_.reserve(dfsc.size());
-		n_rmp_ = make_rmpath(rmpath_i_ec_, dfsc_vertices_, dfsc);
-	    }
-        
-        typedef DfscVI_Vertices::const_iterator const_iterator;
-        
-        const_iterator begin() const            { return dfsc_vertices_.begin(); }
-        const_iterator rmp_end() const          { return dfsc_vertices_.begin() + n_rmp_; }
-        const_iterator end() const              { return dfsc_vertices_.end(); }
+        assert(vi != VI_NULL);
 
-        std::size_t num_all_vertices() const    { return dfsc_vertices_.size(); }
-        std::size_t num_rmp_vertices() const    { return n_rmp_; }
+        DfscVI_Vertices::const_iterator it = std::find(dfsc_vertices_.begin(),
+                                                       dfsc_vertices_.begin() + num_rmp_vertices(),
+                                                       vi);
+        if (it != dfsc_vertices_.begin() + num_rmp_vertices())
+            return true;
 
-        int operator[] (int i) const    { return rmpath_i_ec_[i]; }
-        int num_edges() const		{ return rmpath_i_ec_.size(); }
-        int rightmost_edgeindex() const { return rmpath_i_ec_[0]; }
-        bool is_rightmost_edgeindex(int i) const
-            {
-                return std::find(rmpath_i_ec_.begin(), rmpath_i_ec_.end(), i) != rmpath_i_ec_.end();
-            }
+        assert(dfsc_vertices_.begin() + num_all_vertices() == dfsc_vertices_.end());
+        assert(std::find(dfsc_vertices_.begin() + num_rmp_vertices(),
+                         dfsc_vertices_.begin() + num_all_vertices(),
+                         vi) != dfsc_vertices_.end());
 
-        DfscVI rightmost_vertex() const { return dfsc_vertices_[0]; }
-
-        friend std::ostream& operator<<(std::ostream& out, const RMPath& r);
-    };
+        return false;
+    }
 
     std::ostream& operator<<(std::ostream& out, const RMPath& r)
     {
@@ -504,7 +496,7 @@ namespace gSpan
     // array of the dfsc VI, indexed by the graph VI
     // so, sbg_vertices[graph_vi] == dfsc vi
     //
-    DfscVI* SBG::create_graph_to_dfsc_v(MemAllocator* mem_alloc, DfscVI vi_default)
+    DfscVI* SBG::create_graph_to_dfsc_v(MemAllocator* mem_alloc, DfscVI vi_default) const
     {
         std::size_t n = get_graph()->num_vertices();
         DfscVI* p = mem_alloc->alloc_array<DfscVI>(n);
@@ -521,7 +513,7 @@ namespace gSpan
         return p;
     }
 
-    void SBG::free_graph_to_dfsc_v(DfscVI* array, MemAllocator* mem_alloc)
+    void SBG::free_graph_to_dfsc_v(DfscVI* array, MemAllocator* mem_alloc) const
     {
 	mem_alloc->dealloc_array(array, get_graph()->num_vertices());
     }
@@ -591,6 +583,7 @@ namespace gSpan
     // *****************************************************************************
     //                          SubgraphsOfOneGraph
     // *****************************************************************************
+
     void SubgraphsOfOneGraph::calc_support() const
     {
         int support = std::numeric_limits<int>::max();
@@ -886,7 +879,6 @@ namespace gSpan
     // *****************************************************************************
     //                         SharedData
     // *****************************************************************************
-    enum ExtType { EXT_X, EXT_R, EXT_NONE };
     
     struct SharedData
     {
@@ -1015,7 +1007,7 @@ namespace gSpan
     template<class SG>
     FrameState<SG>::FrameState(SharedData* shared, FrameState* prev, SG* subgraphs)
 	: sg(subgraphs)
-	, rmpath(shared->dfsc, &shared->mem_alloc)
+	, rmpath(shared->dfsc.get_ecvector(), &shared->mem_alloc)
 	, x_edges(&shared->sbg_creator)
 	, r_edges(&shared->sbg_creator)
 	, closed(true)
@@ -1051,12 +1043,15 @@ namespace gSpan
             ext.insert(EdgeCode(0, 1, it->vl_src(), it->el(), it->vl_dst(), true), &*it, &g);
     }
 
+
+
     // -----------------------------------
     //	dfscode minimality check
     // -----------------------------------
 
     // for dfsc check minimality, we use std::vector as DFSCode
-    typedef std::vector<EdgeCode> DFSCodeLite;
+    typedef EdgeCodeVector DFSCodeLite;
+
 
     void enumerate_min_bck(MinimalExtension& ext,
 			   const DFSCodeLite& dfsc_min,
@@ -1168,15 +1163,14 @@ namespace gSpan
 	}
     }
     
-    bool is_min_iterative(SharedData* shared)
+    bool is_min_iterative(const DFSCode& dfsc_tested, SBGCreator<SBGSimple>* sbgsimple_creator)
     {
-
-	const DFSCode& dfsc_tested = shared->dfsc;
+        MemAllocator* mem_alloc = sbgsimple_creator->get_mem_allocator();
         DFSCodeLite dfsc_min;
 	dfsc_min.reserve(dfsc_tested.size());
 
 	const Graph& graph = dfsc_tested.get_graph();
-        MinimalExtensionList ext_list(&shared->sbgsimple_creator);
+        MinimalExtensionList ext_list(sbgsimple_creator);
         MinimalExtension* exts1 = ext_list.push();
 
         enum_one_edges(*exts1, graph);
@@ -1187,17 +1181,17 @@ namespace gSpan
             if (dfsc_min[dfsc_min.size()-1] != dfsc_tested[dfsc_min.size()-1])
                 return false;
 	    
-	    RMPath rmpath(dfsc_min, &shared->mem_alloc);
+	    RMPath rmpath(dfsc_min, mem_alloc);
             MinimalExtension* exts2 = ext_list.push();
 
-            enumerate_min_bck(*exts2, dfsc_min, exts1->get_list(), rmpath, graph, &shared->mem_alloc);
+            enumerate_min_bck(*exts2, dfsc_min, exts1->get_list(), rmpath, graph, mem_alloc);
 	    if (! exts2->empty())
             {
                 exts1 = exts2;
                 continue;
             }
 
-	    enumerate_min_fwd(*exts2, dfsc_min, exts1->get_list(), rmpath, graph, &shared->mem_alloc);
+	    enumerate_min_fwd(*exts2, dfsc_min, exts1->get_list(), rmpath, graph, mem_alloc);
 	    if (! exts2->empty())
             {
                 exts1 = exts2;
@@ -1217,7 +1211,7 @@ namespace gSpan
             return true;
         else
         {
-            last_result = is_min_iterative(shared);
+            last_result = is_min_iterative(shared->dfsc, &shared->sbgsimple_creator);
             shared->on_ismin(last_result);
             return last_result;
         }
@@ -1363,7 +1357,7 @@ namespace gSpan
     void debug_print(const FrameState<SG>* frame, const SharedData* shared)
     {
         std::cerr << "===================================================================\n";
-        std::cerr << "Frame: " << shared->num_calls() << std::endl;
+        //std::cerr << "Frame: " << shared->num_calls() << std::endl;
         std::cerr << "DFSC:\n"
                   << shared->dfsc;
         std::cerr << "REDGES---------------------------\n" << frame->r_edges;
@@ -1547,94 +1541,211 @@ namespace gSpan
 	}
     }
 
-    bool fail_et(const SBG* sbg, const RMPath& rmpath, MemAllocator* mem_alloc, ExtType exttype)
+
+    // -----------------------------------
+    //	early termination
+    // -----------------------------------
+
+    template<class SG>
+    struct et_param
     {
-	const Graph& g = *sbg->get_graph();
-        std::vector<char> visited(g.num_vertices(), false);
+        const SG* sg_ext;
+        const EdgeCode* ec_ext;
+        const SG* sg_ori;
+        DFSCode* dfsc_ori;
+        const RMPath* rmpath_ori;
+        SBGCreator<SBGSimple>* sbgsimple_creator;
+        ExtType exttype;
+    };
+    
+    struct EdgeList
+    {
+        const Graph::Edge* edge;
+        const EdgeList* prev;
+        EdgeList(const Graph::Edge* e = 0, const EdgeList* p = 0) :edge(e), prev(p) {}
+    };
 
-        VertexRMPathStatus vertex_rmpath_status(mem_alloc);
-        if (exttype == EXT_R)
-            vertex_rmpath_status.create(rmpath, sbg);
-                
-        std::queue<GraphVI> q;
-
-        for (const Graph::Edge* e = g.incident(sbg->edge()->vi_dst()); e; e = e->next_adjacent())
+    bool is_path_minimum(const EdgeList* path, const SBG* s_ext, const DfscVI* graph_to_dfsc_ori,
+                         const et_param<SubgraphsOfOneGraph>* param)
+    {
+        DfscVI vi_first = graph_to_dfsc_ori[path->edge->vi_dst()];
+        DfscVI vi_second = param->rmpath_ori->rightmost_vertex() + 1;
+        
+        // vi_start_ext is rmpath vertex
+        assert(vi_first != VI_NULL);
+        assert(param->rmpath_ori->is_rightmost_vertex(vi_first));
+        
+        int num_edgecodes = 0;
+        for (const EdgeList* e = path; e; e = e->prev)
         {
-            if (sbg->has_edge(e->eid()))
-                continue;
-            if (sbg->has_vertex(e->vi_dst()))
-            {
-                if (exttype == EXT_X || vertex_rmpath_status[e->vi_dst()])
-                    return true;
-            }
-            else
-                q.push(e->vi_dst());
-        }
-        visited[sbg->edge()->vi_dst()] = true;
+            ++num_edgecodes;
 
-        bool failure = false;
-        while (!failure && !q.empty())
-        {
-            GraphVI vi = q.front();
-            q.pop();
-            visited[vi] = true;
+            EdgeCode ec(vi_first, vi_second, e->edge->vl_dst(), e->edge->el(), e->edge->vl_src(), true);
+            param->dfsc_ori->push(ec);
 
-            for (const Graph::Edge* e = g.incident(vi); e; e = e->next_adjacent())
-            {
-                GraphVI vi2 = e->vi_dst();
-                if (sbg->has_vertex(vi2))
-                {
-                    if (exttype == EXT_X || vertex_rmpath_status[vi2])
-                    {
-                        failure = true;
-                        break;
-                    }
-                }
-                else
-                    if (! visited[vi2])
-                        q.push(vi2);
-            }
+            vi_first = vi_second;
+            ++vi_second;
         }
-        return failure;
+
+        bool ism = is_min_iterative(*param->dfsc_ori, param->sbgsimple_creator);
+
+        while (--num_edgecodes >= 0)
+            param->dfsc_ori->pop();
+        
+        return ism;
     }
 
-    bool fail_et(SubgraphsOfOneGraph& sog,
-                 const RMPath& rmpath,
-                 MemAllocator* mem_alloc, ExtType exttype)
-    {
-	for (SBG* s = sog.first_all(); s; s = s->next_embedding())
-	{
-	    if (fail_et(s, rmpath, mem_alloc, exttype))
-                return true;
-	}
-	return false;
-    } 
 
-
-    bool fail_et(SubgraphsOfManyGraph& smg,
-                 const RMPath& rmpath,
-                 MemAllocator* mem_alloc, ExtType exttype)
+    bool exist_path_minimum(const SBG* s_ext, const et_param<SubgraphsOfOneGraph>* param)
     {
-        for (SubgraphsOfManyGraph::iterator it = smg.begin(); it != smg.end(); ++it)
-            for (SBG* s = it->first_all(); s; s = s->next_embedding())
+        MemAllocator* ma = param->sbgsimple_creator->get_mem_allocator();
+	const Graph& g = *s_ext->get_graph();
+        std::vector<char> visited(g.num_vertices(), false);
+        
+        VertexRMPathStatus vertex_rmpath_status(ma);
+        DfscVI* graph_to_dfsc_ori = 0;
+        if (param->exttype == EXT_R)
+        {
+            vertex_rmpath_status.create(*param->rmpath_ori, s_ext);
+            graph_to_dfsc_ori = s_ext->parent()->create_graph_to_dfsc_v(ma);
+        }
+        
+        typedef STL_Allocator<EdgeList> Alloc;
+        typedef STL_Allocator<const EdgeList*> AllocPtr;
+        Alloc alloc(ma);
+        AllocPtr alloc_ptr(ma);
+        std::list<EdgeList, Alloc> li(alloc);
+        std::deque<const EdgeList*, AllocPtr> qu(alloc_ptr);
+
+        bool ret = false;
+
+        for (const Graph::Edge* e = g.incident(s_ext->edge()->vi_dst()); !ret && e; e = e->next_adjacent())
+        {
+            if (s_ext->has_edge(e->eid()))
+                continue;
+
+            EdgeList pthe(e);
+            if (s_ext->has_vertex(e->vi_dst()))
             {
-                if (fail_et(s, rmpath, mem_alloc, exttype))
-                    return true;
+                if (param->exttype == EXT_X ||
+                    (vertex_rmpath_status[e->vi_dst()] && is_path_minimum(&pthe, s_ext, graph_to_dfsc_ori, param)))
+                {
+                    ret = true;
+                    break;
+                }
             }
-        return false;
-    } 
+            else
+            {
+                li.push_back(pthe);
+                qu.push_back(&li.back());
+            }
+        }
+        visited[s_ext->edge()->vi_dst()] = true;
 
+        while (!ret && ! qu.empty())
+        {
+            const EdgeList& pthe1 = *qu.front();
+            qu.pop_front();
+            visited[pthe1.edge->vi_dst()] = true;
+
+            for (const Graph::Edge* e = g.incident(pthe1.edge->vi_dst()); e; e = e->next_adjacent())
+            {
+                EdgeList pthe2(e, &pthe1);
+                if (!visited[e->vi_dst()])
+                {
+                    if (s_ext->has_vertex(e->vi_dst()))
+                    {
+                        if (param->exttype == EXT_X ||
+                            (vertex_rmpath_status[e->vi_dst()] &&
+                             is_path_minimum(&pthe2, s_ext, graph_to_dfsc_ori, param)))
+                        {
+                            ret = true;
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        li.push_back(pthe2);
+                        qu.push_back(&li.back());
+                    }
+                }
+            }
+        }
+
+        if (graph_to_dfsc_ori)
+            s_ext->parent()->free_graph_to_dfsc_v(graph_to_dfsc_ori, ma);
+
+        return ret;
+    }
+
+    bool fail_early_termination(const et_param<SubgraphsOfOneGraph>* param)
+    {
+        if (param->ec_ext->is_forward())
+        {
+            for (const SBG* s = param->sg_ext->first_all(); s; s = s->next_embedding())
+                if (exist_path_minimum(s, param))
+                    return true;
+            return false;
+        }
+        else
+        {
+            if (param->exttype == EXT_R)
+                return false;
+            return param->sg_ext->size_list_all() != param->sg_ori->size_list_all();
+        }
+    }
+
+
+
+    bool fail_early_termination(const et_param<SubgraphsOfManyGraph>* param)
+    {
+        return true;
+    }
+    
 
     template<class SG, class Compare>
     void detect_et(FrameState<SG>* frame, SharedData* shared,
                    SetNode<EdgeCode, SG, Compare>& ext_sg,
                    bool equiv, ExtType exttype)
     {
-        if (equiv && !frame->early_term
+        if (br)
+            ;//BR;
+
 #ifdef CHECK_MODE
-            && !frame->TERMINATED_BRANCH
+        if (frame->TERMINATED_BRANCH)
+            return;
 #endif
-            )
+        if (frame->early_term)
+            return;
+
+        if (!equiv)
+            return;
+
+        et_param<SG> param;
+        param.sg_ext = &ext_sg;
+        param.ec_ext = &ext_sg.get_key();
+        param.sg_ori = frame->sg;
+        param.dfsc_ori = &shared->dfsc;
+        param.rmpath_ori = &frame->rmpath;
+        param.sbgsimple_creator = &shared->sbgsimple_creator;
+        param.exttype = exttype;
+
+        if (fail_early_termination(&param))
+            return;
+        
+        if (param.ec_ext->is_forward())
+            shared->on_early_term_f(exttype);
+        else
+            shared->on_early_term_b(exttype);            
+
+        frame->early_term = true;
+        assert(frame->exttype_early_term == EXT_NONE);
+        frame->exttype_early_term = exttype;
+        frame->ec_early_term = &ext_sg.get_key();
+        frame->sg_ext_early_term = &ext_sg;
+
+        /*
+        if (equiv && !frame->early_term)
         {
             if (ext_sg.get_key().is_forward())
             {
@@ -1644,9 +1755,11 @@ namespace gSpan
             }
             else
             {
-                frame->early_term = ext_sg.size_list_all() == frame->sg->size_list_all();
                 if (exttype == EXT_R)
                     frame->early_term = true;
+                else
+                    frame->early_term = ext_sg.size_list_all() == frame->sg->size_list_all();
+                //frame->early_term = true;
 
                 if (frame->early_term)
                     shared->on_early_term_b(exttype);
@@ -1660,6 +1773,7 @@ namespace gSpan
                 frame->sg_ext_early_term = &ext_sg;
             }
         }
+        */
     }
 
     template<class SG, class Compare>
@@ -1692,6 +1806,8 @@ namespace gSpan
         
         enumerate(&frame, shared);
         remove_not_frequents(frame.r_edges, shared->minsup_);
+
+        br = frame.id == 1607985;
 
         for (XEIter it = frame.x_edges.begin(); it != frame.x_edges.end(); ++it)
         {
@@ -1739,7 +1855,7 @@ namespace gSpan
                 break;      
         }
 #endif
-
+        
         trace_frame(&frame, shared);
         result(&frame, shared);
             

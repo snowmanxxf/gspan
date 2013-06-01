@@ -5,6 +5,7 @@
 #include <numeric>
 #include <cassert>
 
+
 class MappedValueNotFound {};
 
 template<class M>
@@ -24,8 +25,6 @@ void read_input(std::list<InputGraph>& igl, std::istream& is)
     char line[1024];
     while (true)
     {
-        std::streampos pos = is.tellg();
-	
 	if (! is.getline(line, 1024))
 	    break;
 	
@@ -142,8 +141,10 @@ void create_working_graphs(WorkingGraphs& wrk_graphs,
 			   const std::map<std::string, int>& els_el,
 			   const std::list<InputGraph>& input_graphs)
 {
-    BOOST_FOREACH(const InputGraph& ig, input_graphs)
+    for (std::list<InputGraph>::const_iterator iter = input_graphs.begin(); iter != input_graphs.end(); ++iter)
     {
+        const InputGraph& ig = *iter;
+
 	int corr = ig.vl.begin()->first == 1;
 	
         std::vector<gSpan::EdgeCode> eclist;

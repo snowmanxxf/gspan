@@ -5,7 +5,7 @@
 #include <vector>
 #include <map>
 #include <list>
-#include <boost/foreach.hpp>
+#include <cstring>
 
 struct InputGraph
 {
