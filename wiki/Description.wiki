@@ -7,8 +7,13 @@ The purpose of the software is mining frequent graphs in a graph database. Given
 Compilation product is a static library libgspan.a and test program closegraph.
 
 = Usage =
-closegraph <minsup> [{-dfsc -edge}] [{ -m -mt }] "
-		<< "[-asc] [-vlfile=FILE] [-elfile=FILE] [-trace N] [-if=file]
+
+*Synopsys:
+{{{
+closegraph <minsupport> <output format options> <label order files options> <trace option> -if=file 
+}}}
+
+
 
 = Details =
 
