@@ -10,9 +10,13 @@ Compilation product is a static library libgspan.a and test program closegraph.
 
 *Synopsys:
 {{{
-closegraph <minsupport> <output format options> <label order files options> <trace option> -if=file 
+closegraph <min support> <output format options> <label order files options> <trace option> -if=file 
 }}}
 
+<min support>: is a integer number
+
+<output format options> -edge, -dfsc
+ 
 
 
 = Details =
