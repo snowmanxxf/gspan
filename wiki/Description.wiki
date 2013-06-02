@@ -12,16 +12,3 @@ Compilation product is a static library libgspan.a and test program closegraph.
 {{{
 closegraph <min support> <output format options> <label order files options> <trace option> -if=file 
 }}}
-
-<min support>: is a integer number
-
-<output format options> -edge, -dfsc
- 
-
-
-= Details =
-
-Add your content here.  Format your content with:
-  * Text in *bold* or _italic_
-  * Headings, paragraphs, and lists
-  * Automatic links to other wiki pages
