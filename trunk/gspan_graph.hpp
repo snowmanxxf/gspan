@@ -4,7 +4,6 @@
 #include "gspan_allocator.hpp"
 
 #include <vector>
-#include <list>
 #include <limits>
 #include <iterator>             // std::distance()
 #include <algorithm>            // std::max()
@@ -12,7 +11,6 @@
 #include <functional>           // std::less()
 
 #include <boost/intrusive/set.hpp>
-#include <boost/intrusive/list.hpp>
 #include <boost/noncopyable.hpp>
 
 #ifndef BR
