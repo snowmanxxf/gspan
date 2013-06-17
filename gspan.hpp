@@ -8,6 +8,8 @@
 #include <vector>
 #include <cassert>
 
+#include <boost/intrusive/list.hpp>
+
 #ifdef USE_ASM
 #include <stdint.h>
 #endif
@@ -17,7 +19,7 @@
 #endif
 
 #ifndef SERIALIZE
-#define SERIALIZE       asm volatile ("xor %%eax, %%eax; cpuid;" : : : "eax", "ebx", "ecx", "edx")
+#define SERIALIZE asm volatile ("xor %%eax, %%eax\n\t cpuid\n\t" : : : "eax", "ebx", "ecx", "edx")
 #endif
 
 #ifndef NOINLINE
@@ -25,7 +27,7 @@
 #endif
 
 #if defined(USE_ASM)
-#define PREFETCH(addr)  asm("prefetcht0 %0\n" : :"m"((addr)))
+#define PREFETCH(addr)  asm("prefetcht0 %0\n\t" : :"m"((addr)))
 #else
 #define PREFETCH(addr)
 #endif
@@ -187,15 +189,20 @@ namespace gSpan
 		rmpath_i_ec_.reserve(dfsc.size());
 		n_rmp_ = make_rmpath(rmpath_i_ec_, dfsc_vertices_, dfsc);
 	    }
-        
+
+        //
+        // there are two subset of the vertices 
+        // [ begin()   ... rmp_end() )    right most path vertices
+        // [ rmp_end() ... end()    ]     all other vertices
+        //
         typedef DfscVI_Vertices::const_iterator const_iterator;
-        
         const_iterator begin() const            { return dfsc_vertices_.begin(); }
         const_iterator rmp_end() const          { return dfsc_vertices_.begin() + n_rmp_; }
         const_iterator end() const              { return dfsc_vertices_.end(); }
 
         std::size_t num_all_vertices() const    { return dfsc_vertices_.size(); }
         std::size_t num_rmp_vertices() const    { return n_rmp_; }
+
 
         int operator[] (int i) const    { return rmpath_i_ec_[i]; }
         int num_edges() const		{ return rmpath_i_ec_.size(); }
@@ -320,6 +327,7 @@ namespace gSpan
 	std::size_t num_edges() const		{ return depth_; }
 	unsigned short depth() const		{ return depth_; }
 
+        // return true if vertex or edge is part of the subgraph
 	bool has_vertex(GraphVI v) const	{ return v_bits_.test(v, graph_->num_vertices()); }
 	bool has_edge(GraphEI e) const		{ return e_bits_.test(e, graph_->num_edges()); }
 	
@@ -329,9 +337,10 @@ namespace gSpan
 
 	SBG_Derived* next_embedding() const	{ return embedding_next_; }
 
-	/*
-	 * true in case of the automorphism
-	 */
+	//
+        // true in case of the automorphism
+	// this two graphs consist of the same edges
+        //
 	friend bool operator== (const SBGBase& s1, const SBGBase& s2)
             {
                 assert(s1.graph_->num_edges() == s2.graph_->num_edges());
@@ -390,6 +399,9 @@ namespace gSpan
 	void free_dfsc_to_graph_array(MemAllocator* mem_alloc)
 	    { mem_alloc->dealloc_array(vi_dfsc_to_graph_, num_vertices()); }
     public:
+
+        DfscVI dfsc_src() const { return vi_src_dfsc_; }
+        DfscVI dfsc_dst() const { return vi_dst_dfsc_; }
 
 	/*
 	 * return array of the graph VI, indexed by the dfsc VI
@@ -518,8 +530,122 @@ namespace gSpan
 
 
     // *****************************************************************************
+    //                          Intrusive Containers
+    // *****************************************************************************
+    
+    template<class Key, class SG>
+    class SGSetNode : public SG
+    {
+        Key key_;
+    public:
+        SGSetNode(const Key& key, SBGCreator<SBG>* sbg_creator) : SG(sbg_creator), key_(key) {}
+        typedef Key key_type;
+        const Key& get_key() const { return key_; }
+        typedef boost::intrusive::set_member_hook<
+            boost::intrusive::link_mode<boost::intrusive::normal_link>,
+            boost::intrusive::optimize_size<true>
+            > Hook_;
+        Hook_ hook_;
+        typedef boost::intrusive::member_hook<SGSetNode, Hook_, &SGSetNode::hook_> HookOptions_;
+    };
+
+
+    template<class Key, class SG>
+    class SGListNode : public SG
+    {
+        Key key_;
+    public:
+        SGListNode(const Key& key, SBGCreator<SBG>* sbg_creator) : SG(sbg_creator), key_(key) {}
+        const Key& get_key() const { return key_; }
+        typedef boost::intrusive::list_member_hook<boost::intrusive::link_mode<boost::intrusive::normal_link> > Hook_;
+        Hook_ hook_;
+        typedef boost::intrusive::member_hook<SGListNode, Hook_, &SGListNode::hook_> HookOptions_;
+    };
+
+    
+    template<class Node, class Cmp>
+    class SGNodeCompare
+    {
+        Cmp cmp;
+    public:
+        bool operator() (const Node& n1, const Node& n2) const                  { return cmp(n1.get_key(), n2.get_key()); }
+        bool operator() (const typename Node::key_type& k, const Node& n) const { return cmp(k, n.get_key()); }
+        bool operator() (const Node& n, const typename Node::key_type& k) const { return cmp(n.get_key(), k); }
+    };
+
+
+    template<class Node, bool const_time_size, class size_type, class Cmp>
+    class SGSet
+        : public boost::intrusive::set<Node,
+                                       typename Node::HookOptions_,
+                                       boost::intrusive::constant_time_size<const_time_size>,
+                                       boost::intrusive::size_type<size_type>,
+                                       boost::intrusive::compare<Cmp>
+                                       >
+    {
+    };
+
+
+    template<class Node, class Cmp>
+    class SGSet<Node, false, void, Cmp>
+        : public boost::intrusive::set<Node,
+                                       typename Node::HookOptions_,
+                                       boost::intrusive::constant_time_size<false>,
+                                       boost::intrusive::compare<Cmp>
+                                       >
+    {
+    };
+
+
+
+    template<class Node, bool const_time_size, class size_type, class Cmp>
+    class SGList
+        : public boost::intrusive::list<Node,
+                                       typename Node::HookOptions_,
+                                       boost::intrusive::constant_time_size<const_time_size>,
+                                       boost::intrusive::size_type<size_type>
+                                       >
+    {
+    };
+
+    template<class Node, class Cmp>
+    class SGList<Node, false, void, Cmp>
+        : public boost::intrusive::list<Node,
+                                       typename Node::HookOptions_,
+                                       boost::intrusive::constant_time_size<false>
+                                       >
+    {
+    };
+
+
+    // intrusive container type constructor
+    enum ContSelector { SET, LIST };
+
+    template<ContSelector, class Key, class SG, class Cmp, bool const_time_size, class size_type>
+    struct ContainerType;
+    
+    template<class Key, class SG, class Cmp, bool const_time_size, class size_type>
+    struct ContainerType<SET, Key, SG, Cmp, const_time_size, size_type>
+    {
+        typedef SGSetNode<Key, SG> NodeType;
+        typedef SGNodeCompare<NodeType, Cmp> NodeCompare;
+        typedef SGSet<NodeType, const_time_size, size_type, NodeCompare> ContType;
+    };
+
+    template<class Key, class SG, class Cmp, bool const_time_size, class size_type>
+    struct ContainerType<LIST, Key, SG, Cmp, const_time_size, size_type>
+    {
+        typedef SGListNode<Key, SG> NodeType;
+        typedef SGNodeCompare<NodeType, Cmp> NodeCompare;
+        typedef SGList<NodeType, const_time_size, size_type, NodeCompare> ContType;
+    };
+
+
+
+    // *****************************************************************************
     //                          Intrusive Set
     // *****************************************************************************
+
     template<class Key, class SG, class Cmp = std::less<Key> >
     class SetNode : public SG
     {
@@ -574,6 +700,7 @@ namespace gSpan
     {};
     
 
+
     // *****************************************************************************
     //                          SubgraphsOfOneGraph
     // *****************************************************************************
@@ -615,9 +742,11 @@ namespace gSpan
     // *****************************************************************************
     class SubgraphsOfManyGraph : private boost::noncopyable
     {
-        typedef SetNode<const Graph*, SubgraphsOfOneGraph> SOG;
-        typedef Set<SOG, true, support_type> SOGSet;
-
+        typedef ContainerType<SET, const Graph*, SubgraphsOfOneGraph, std::less<const Graph*>, true, support_type> CT;
+        typedef typename CT::NodeType SOG;
+        typedef typename CT::NodeCompare CompareKey;
+        typedef typename CT::ContType SOGSet;
+        
         SOGSet set_;
         FixedAllocator* fa_;
         SBGCreator<SBG>* sbg_creator_;
@@ -661,7 +790,7 @@ namespace gSpan
     };
 
 
-    void closegraph(const Graph& graph, support_type minsup, GspanResult* result, int max_trace_depth = 0);
+    void closegraph(const Graph& graph,               support_type minsup, GspanResult* result, int max_trace_depth = 0);
     void closegraph(const std::vector<const Graph*>&, support_type minsup, GspanResult* result, int max_trace_depth = 0);
 
 }

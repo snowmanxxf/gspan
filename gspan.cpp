@@ -5,8 +5,15 @@
 #include <climits>
 #include <cstring>
 
+#ifdef WITH_CHECKS
+#include <set>
+#include <algorithm>
+#endif
+
 namespace gSpan
 {
+    bool br = false;
+
     enum ExtType { EXT_X, EXT_R, EXT_NONE };
     
 #ifdef GSPAN_WITH_STATISTICS
@@ -688,7 +695,7 @@ namespace gSpan
     {
         ++size_list_all_;
         SOGSet::insert_commit_data insert_data;
-        std::pair<iterator,bool> r = set_.insert_check(s->get_graph(), SOG::CompareKey(), insert_data);
+        std::pair<iterator,bool> r = set_.insert_check(s->get_graph(), CompareKey(), insert_data);
         if(r.second)
             r.first = set_.insert_commit(*new (fa_->allocate()) SOG(s->get_graph(), sbg_creator_), insert_data);
         r.first->insert(s);
@@ -696,7 +703,7 @@ namespace gSpan
 
     const SubgraphsOfOneGraph& SubgraphsOfManyGraph::find(const Graph* g) const
     {
-        const_iterator it = set_.find(g, SOG::CompareKey());
+        const_iterator it = set_.find(g, CompareKey());
         assert(it != set_.end());
         return *it;
     }
@@ -707,50 +714,45 @@ namespace gSpan
             return false;
         for (const_iterator it = begin(); it != end(); ++it)
         {
-            const SOG& node = *parent.set_.find(it->get_graph(), SOG::CompareKey());
+            const SOG& node = *parent.set_.find(it->get_graph(), CompareKey());
             if (! it->is_equal_occurence(node))
                 return false;
         }
         return true;
     }
 
-
     // *****************************************************************************
     //                          Extension
-    //                         list version
-    // *****************************************************************************
-    
-
-
-
-
-    // *****************************************************************************
-    //                          Extension
-    //                         set version
+    //                          set based
     // *****************************************************************************
 
     // SG       : SubgraphsOfOneGraph or SubgraphsOfManyGraph
     // Compare  : EdgeCodeCmpDfs or EdgeCodeCmpLex
-    template<class SG, class Compare>   
-    class Extension : public Set<SetNode<EdgeCode, SG, Compare>, false, void>
+    template<ContSelector CS, class SG, class Compare>   
+    class Extension
+        : public ContainerType<CS, EdgeCode, SG, Compare, false, void>::ContType
     {
-        typedef SetNode<EdgeCode, SG, Compare> Node;
-        typedef Set<Node, false, void> Base;
+        typedef ContainerType<CS, EdgeCode, SG, Compare, false, void> CT;
+        typedef typename CT::NodeType Node;
+        typedef typename CT::NodeCompare CompareKey;
+        typedef typename CT::ContType Base;
 
         FixedAllocator* fa_;
         SBGCreator<SBG>* sbg_creator_;
+
+        typename Base::iterator last_used_iter_;
     public:
         explicit Extension(SBGCreator<SBG>* sbg_creator)
             :fa_(sbg_creator->get_mem_allocator()->get_fixed_allocator(sizeof(Node))),
-             sbg_creator_(sbg_creator) {}
+             sbg_creator_(sbg_creator) { last_used_iter_ = this->end(); }
         ~Extension();
         
         void insert(const EdgeCode& ec, const Graph::Edge* e, const Graph* g);
         void insert(const EdgeCode& ec, const Graph::Edge* e, const SBG* s);
     };
 
-    template<class SG, class Compare>
-    Extension<SG, Compare>::~Extension()
+    template<ContSelector CS, class SG, class Compare>
+    Extension<CS, SG, Compare>::~Extension()
     {
         typename Base::iterator it = this->begin();
         while (it != this->end())
@@ -762,30 +764,154 @@ namespace gSpan
         }
     }
 
-    template<class SG, class Compare>        
-    void Extension<SG, Compare>::insert(const EdgeCode& ec, const Graph::Edge* e, const Graph* g)
+    template<ContSelector CS, class SG, class Compare>        
+    void Extension<CS, SG, Compare>::insert(const EdgeCode& ec, const Graph::Edge* e, const Graph* g)
     {
         typename Base::insert_commit_data insert_data;
-        std::pair<typename Base::iterator,bool> r = this->insert_check(ec, typename Node::CompareKey(), insert_data);
+        std::pair<typename Base::iterator,bool> r = this->insert_check(last_used_iter_,
+                                                                       ec, CompareKey(), insert_data);
         if(r.second)
             r.first = this->insert_commit(*new (fa_->allocate()) Node(ec, sbg_creator_), insert_data);
         r.first->insert(sbg_creator_->new_sbg(e, g));
+        last_used_iter_ = r.first;
     }
 
-    template<class SG, class Compare>
-    void Extension<SG, Compare>::insert(const EdgeCode& ec, const Graph::Edge* e, const SBG* s)
+    template<ContSelector CS, class SG, class Compare>
+    void Extension<CS, SG, Compare>::insert(const EdgeCode& ec, const Graph::Edge* e, const SBG* s)
     {
         typename Base::insert_commit_data insert_data;
-        std::pair<typename Base::iterator,bool> r = this->insert_check(ec, typename Node::CompareKey(), insert_data);
+        std::pair<typename Base::iterator,bool> r = this->insert_check(last_used_iter_,
+                                                                       ec, CompareKey(), insert_data);
         if(r.second)
             r.first = this->insert_commit(*new (fa_->allocate()) Node(ec, sbg_creator_), insert_data);
         r.first->insert(sbg_creator_->new_sbg(e, s, ec));
+        last_used_iter_ = r.first;
+    }
+
+    template<class SG, template <class,class> class Node>
+    inline bool is_equal_occurrence(const Node<EdgeCode,SG>& ext_sg, const SG& sg_parent)
+    {
+        return ext_sg.is_equal_occurence(sg_parent);
+    }
+
+
+
+    // *****************************************************************************
+    //                          Extension
+    //                          list based
+    // *****************************************************************************
+
+    // SG       : SubgraphsOfOneGraph or SubgraphsOfManyGraph
+    // Compare  : EdgeCodeCmpDfs or EdgeCodeCmpLex
+    template<class SG, class Compare>
+    class Extension<LIST,SG,Compare>
+        : public ContainerType<LIST, EdgeCode, SG, Compare, false, void>::ContType
+    {
+        typedef ContainerType<LIST, EdgeCode, SG, Compare, false, void> CT;
+        typedef typename CT::NodeType Node;
+        typedef typename CT::NodeCompare CompareKey;
+        typedef typename CT::ContType Base;
+
+        FixedAllocator* fa_;
+        SBGCreator<SBG>* sbg_creator_;
+
+        typename Base::iterator last_used_iter_;
+        Base& base() { return *this; }
+    public:
+        explicit Extension(SBGCreator<SBG>* sbg_creator)
+            :fa_(sbg_creator->get_mem_allocator()->get_fixed_allocator(sizeof(Node))),
+             sbg_creator_(sbg_creator) { last_used_iter_ = this->end(); }
+        ~Extension();
+
+        void insert(const EdgeCode& ec, const Graph::Edge* e, const SBG* s);
+    };
+
+    template<class SG, class Compare>
+    Extension<LIST, SG, Compare>::~Extension()
+    {
+        typename Base::iterator it = this->begin();
+        while (it != this->end())
+        {
+            Node* p = &*it;
+            this->erase(it++);
+            p->~Node();
+            fa_->deallocate(p);
+        }
+    }
+
+    template <class ForwardIterator, class Compare>
+    bool is_sorted (ForwardIterator first, ForwardIterator last, Compare comp)
+    {
+        if (br)
+            BR;
+
+        Compare cmp;
+        ForwardIterator prev = first;
+        ForwardIterator next = first;
+        if (next != last)
+            ++next;
+
+        while (next != last)
+        {
+            if (! cmp(prev->get_key(), next->get_key()))
+                return false;
+            ++prev;
+            ++next;
+        }
+        return true;
     }
 
     template<class SG, class Compare>
-    inline bool is_equal_occurrence(const SetNode<EdgeCode, SG, Compare>& ext_sg, const SG& sg_parent)
+    void Extension<LIST, SG, Compare>::insert(const EdgeCode& ec, const Graph::Edge* e, const SBG* s)
     {
-        return ext_sg.is_equal_occurence(sg_parent);
+        SBG* sbg = sbg_creator_->new_sbg(e, s, ec);
+        Compare cmp;
+        typename Base::iterator it = base().begin();
+        typename Base::iterator it_end = base().end();
+
+        if (last_used_iter_ != base().end())
+        {
+            if (! cmp(ec, last_used_iter_->get_key()))
+            {
+                // last_used_iter_->get_key() <= ec
+                it = last_used_iter_;
+            }
+        }
+
+        while (it != it_end)
+        {
+            if (cmp(ec, it->get_key()))
+            {
+                // ec < it->get_key()
+                Node* node = new (fa_->allocate()) Node(ec, sbg_creator_);
+                last_used_iter_ = base().insert(it, *node);
+                node->insert(sbg);
+
+#ifdef WITH_CHECKS
+                assert(is_sorted(base().begin(), base().end(), Compare()));
+#endif
+                return;
+            }
+            
+            if (!cmp(it->get_key(), ec))
+            {
+                // equal
+                it->insert(sbg);
+                last_used_iter_ = it;
+                return;
+            }
+            
+            ++it;
+        }
+        
+        Node* node = new (fa_->allocate()) Node(ec, sbg_creator_);
+        base().push_back(*node);
+        node->insert(sbg);
+        last_used_iter_ = base().begin();
+
+#ifdef WITH_CHECKS
+        assert(is_sorted(base().begin(), base().end(), Compare()));
+#endif
     }
 
     // *****************************************************************************
@@ -977,8 +1103,8 @@ namespace gSpan
 
         RMPath rmpath;
 
-	typedef Extension<SG, EdgeCodeCmpDfs> REdges;
-	typedef Extension<SG, EdgeCodeCmpLex> XEdges;
+	typedef Extension<SET,  SG, EdgeCodeCmpDfs> REdges;
+	typedef Extension<LIST, SG, EdgeCodeCmpLex> XEdges;
         typedef typename REdges::const_iterator REcIter;
         typedef typename XEdges::const_iterator XEcIter;
         typedef typename REdges::iterator REIter;
@@ -1342,7 +1468,7 @@ namespace gSpan
         cerr << "--------------------------\n";
         for (unsigned int i = 0; i < fet_frame->depth; ++i)
             cerr << i+1 << ":\t"
-                 << (find(fet_frame->rmpath.begin(),fet_frame->rmpath.end(), i) != fet_frame->rmpath.end() ? "*" : " ")
+                 << (fet_frame->rmpath.is_rightmost_edgeindex(i) ? "*" : " ")
                  << shared->dfsc[i]
                  << endl;
         cerr << "--------------------------\n";
@@ -1368,17 +1494,6 @@ namespace gSpan
         cerr << endl;
     }
 #endif
-
-    template<class SG>
-    void debug_print(const FrameState<SG>* frame, const SharedData* shared)
-    {
-        std::cerr << "===================================================================\n";
-        //std::cerr << "Frame: " << shared->num_calls() << std::endl;
-        std::cerr << "DFSC:\n"
-                  << shared->dfsc;
-        std::cerr << "REDGES---------------------------\n" << frame->r_edges;
-        std::cerr << "XEDGES---------------------------\n" << frame->x_edges;
-    }
 
     template<class SG>
     void trace_frame(FrameState<SG>* frame, SharedData* shared)
@@ -1451,13 +1566,26 @@ namespace gSpan
             DfscVI* graph_to_dfsc_v = s->create_graph_to_dfsc_v(mem_alloc, vi_dfsc_new);
 
             VertexRMPathStatus vertex_rmpath_status(rmpath, s, mem_alloc);
-      
+
+            //
+            // R edges will be
+            // IF
+            // 1) vi_src is rmpath vertex AND
+            // 2) vi_dst is new vertex (forward) OR 
+            //     (vi_src is rmost vertex AND vi_dst is any rmpath vertex)
+            // ELSE
+            // X edges
+            //
+
+#ifdef WITH_CHECKS
+            std::set<const Graph::Edge*> e_found;
+#endif
+
             for (RMPath::const_iterator dfsc_vi_iter = rmpath.begin();
-                 dfsc_vi_iter != rmpath.end(); ++dfsc_vi_iter)
+                 dfsc_vi_iter != rmpath.rmp_end(); ++dfsc_vi_iter)
             {
                 const DfscVI dfsc_vi = *dfsc_vi_iter;
                 const GraphVI graph_vi = dfsc_to_graph_v[dfsc_vi];
-                const bool rmpath_vertex = dfsc_vi_iter < rmpath.rmp_end();
 
                 assert(graph_to_dfsc_v[graph_vi] == dfsc_vi);
                 assert(graph_vi >= 0 && graph_vi < s->get_graph()->num_vertices());
@@ -1466,64 +1594,83 @@ namespace gSpan
                 if (s->has_no_extension(graph_vi))
                     continue;
                 s->set_no_has_extension(graph_vi);
-                      
+
                 for (const Graph::Edge* e = g->incident(graph_vi); e; e = e->next_adjacent())
                 {
                     if (s->has_edge(e->eid()))
                         continue;
                     s->set_has_extension(graph_vi);
-                    
-                    //
-                    // R edges will be
-                    // IF
-                    // 1) vi_src is rmpath vertex AND
-                    // 2) vi_dst is new vertex (forward) OR 
-                    //     (vi_src is rmost vertex AND vi_dst is any rmpath vertex)
-                    // ELSE
-                    // X edges
-                    // 
+                            
+                    // vi_src is rmpath vertex
 
-                    if (rmpath_vertex)
+                    if (! s->has_vertex(e->vi_dst()))
                     {
-                        // vi_src is rmpath vertex
-
-                        if (! s->has_vertex(e->vi_dst()))
-                        {
-                            // vi_dst is new vertex
-                            // R forward
-                            EdgeCode ec(dfsc_vi, vi_dfsc_new, e->vl_src(), e->el(), e->vl_dst(), true);
-                            r_edges.insert(ec, e, s);
-                        }
-                        else if (e->vi_src() == vi_rmost && vertex_rmpath_status[e->vi_dst()])
-                        {
-                            // vi_src is rmost vertex AND vi_dst is any rmpath vertex
-                            // R backward
-                            DfscVI dfsc_vi_dst = graph_to_dfsc_v[e->vi_dst()];
-                            assert(dfsc_vi_dst != vi_dfsc_new);
-                            EdgeCode ec(dfsc_vi, dfsc_vi_dst, e->vl_src(), e->el(), e->vl_dst(), false);
-                            r_edges.insert(ec, e, s);
-                        }
-                        else
-                        {
-                            if (! (e->vi_dst() == vi_rmost && vertex_rmpath_status[e->vi_src()]))
-                            {
-                                // X backward
-                                DfscVI dfsc_vi_dst = graph_to_dfsc_v[e->vi_dst()];
-                                assert(dfsc_vi_dst != vi_dfsc_new);
-                                EdgeCode ec(dfsc_vi, dfsc_vi_dst, e->vl_src(), e->el(), e->vl_dst(), false);
-                                x_edges.insert(ec, e, s);
-                            }
-                        }
+                        // vi_dst is new vertex
+                        // R forward
+                        EdgeCode ec(dfsc_vi, vi_dfsc_new, e->vl_src(), e->el(), e->vl_dst(), true);
+                        r_edges.insert(ec, e, s);
+                    }
+                    else if (e->vi_src() == vi_rmost && vertex_rmpath_status[e->vi_dst()])
+                    {
+                        // vi_src is rmost vertex AND vi_dst is any rmpath vertex
+                        // R backward
+                        DfscVI dfsc_vi_dst = graph_to_dfsc_v[e->vi_dst()];
+                        assert(dfsc_vi_dst != vi_dfsc_new);
+                        EdgeCode ec(dfsc_vi, dfsc_vi_dst, e->vl_src(), e->el(), e->vl_dst(), false);
+                        r_edges.insert(ec, e, s);
                     }
                     else
                     {
-                        // from vertex not on rmpath
-                           
-                        DfscVI dfsc_vi_dst = graph_to_dfsc_v[e->vi_dst()];
-                        EdgeCode ec(dfsc_vi, dfsc_vi_dst,
-                                    e->vl_src(), e->el(), e->vl_dst(), ! s->has_vertex(e->vi_dst()));
-                        x_edges.insert(ec, e, s);
+                        if (! (e->vi_dst() == vi_rmost && vertex_rmpath_status[e->vi_src()]))
+                        {
+                            // X backward
+                            DfscVI dfsc_vi_dst = graph_to_dfsc_v[e->vi_dst()];
+                            assert(dfsc_vi_dst != vi_dfsc_new);
+                            EdgeCode ec(dfsc_vi, dfsc_vi_dst, e->vl_src(), e->el(), e->vl_dst(), false);
+                            x_edges.insert(ec, e, s);
+                        }
                     }
+
+#ifdef WITH_CHECKS
+                    assert(e_found.count(e) == 0);
+                    e_found.insert(e);
+#endif
+                }                
+            }
+
+
+            for (RMPath::const_iterator dfsc_vi_iter = rmpath.rmp_end();
+                 dfsc_vi_iter != rmpath.end(); ++dfsc_vi_iter)
+            {
+                const DfscVI dfsc_vi = *dfsc_vi_iter;
+                const GraphVI graph_vi = dfsc_to_graph_v[dfsc_vi];
+
+                assert(graph_to_dfsc_v[graph_vi] == dfsc_vi);
+                assert(graph_vi >= 0 && graph_vi < s->get_graph()->num_vertices());
+                assert(graph_vi < graph_size(g));
+
+                if (s->has_no_extension(graph_vi))
+                    continue;
+                s->set_no_has_extension(graph_vi);
+
+                for (const Graph::Edge* e = g->incident(graph_vi); e; e = e->next_adjacent())
+                {
+                    if (s->has_edge(e->eid()))
+                        continue;
+
+                    s->set_has_extension(graph_vi);
+
+                    // from vertex not on rmpath
+                    
+                    DfscVI dfsc_vi_dst = graph_to_dfsc_v[e->vi_dst()];
+                    EdgeCode ec(dfsc_vi, dfsc_vi_dst,
+                                e->vl_src(), e->el(), e->vl_dst(), ! s->has_vertex(e->vi_dst()));
+                    x_edges.insert(ec, e, s);
+
+#ifdef WITH_CHECKS
+                    assert(e_found.count(e) == 0);
+                    e_found.insert(e);
+#endif
                 }
             }
             
@@ -1591,15 +1738,22 @@ namespace gSpan
 
 
 
+
     bool is_path_minimum(const EdgeList* path, const SBG* s_ext, const DfscVI* graph_to_dfsc_ori,
                          const et_param<SubgraphsOfOneGraph>* param)
     {
-        DfscVI vi_first = graph_to_dfsc_ori[path->edge->vi_dst()];
+        std::vector<const Graph::Edge*> rev_path;
+
+        const DfscVI vi_connect = graph_to_dfsc_ori[path->edge->vi_dst()];
+
+        // ----------------------------------------------------------
+        // check path from some embeddings vertex to extention vertex
+        // ----------------------------------------------------------
+        DfscVI vi_first = vi_connect;
         DfscVI vi_second = param->rmpath_ori->rightmost_vertex() + 1;
-        
         assert(vi_first != VI_NULL);
         assert(param->rmpath_ori->is_rightmost_vertex(vi_first));
-        
+
         int num_edgecodes = 0;
         for (const EdgeList* e = path; e; e = e->prev)
         {
@@ -1607,17 +1761,17 @@ namespace gSpan
 
             EdgeCode ec(vi_first, vi_second, e->edge->vl_dst(), e->edge->el(), e->edge->vl_src(), true);
             param->dfsc_ori->push(ec);
-
+            rev_path.push_back(e->edge);
             vi_first = vi_second;
             ++vi_second;
         }
 
-        bool ism = is_min_iterative(*param->dfsc_ori, param->sbgsimple_creator);
+        bool ism_direct = is_min_iterative(*param->dfsc_ori, param->sbgsimple_creator);
 
-        while (--num_edgecodes >= 0)
+        for (int i = 0; i < num_edgecodes; ++i)
             param->dfsc_ori->pop();
-        
-        return ism;
+
+        return ism_direct;
     }
 
 
@@ -1630,7 +1784,7 @@ namespace gSpan
         
         VertexRMPathStatus vertex_rmpath_status(ma);
         DfscVI* graph_to_dfsc_ori = 0;
-        if (param->exttype == EXT_R)
+        //if (param->exttype == EXT_R)
         {
             vertex_rmpath_status.create(*param->rmpath_ori, s_ext);
             graph_to_dfsc_ori = s_ext->parent()->create_graph_to_dfsc_v(ma);
@@ -1641,7 +1795,7 @@ namespace gSpan
         Alloc alloc(ma);
         AllocPtr alloc_ptr(ma);
         std::list<EdgeList, Alloc> li(alloc);
-        std::deque<const EdgeList*, AllocPtr> qu(alloc_ptr);
+        std::list<const EdgeList*, AllocPtr> qu(alloc_ptr);
 
         bool ret = false;
 
@@ -1653,7 +1807,7 @@ namespace gSpan
             EdgeList pthe(e);
             if (s_ext->has_vertex(e->vi_dst()))
             {
-                if (param->exttype == EXT_X ||
+                if (//param->exttype == EXT_X ||
                     (vertex_rmpath_status[e->vi_dst()] && is_path_minimum(&pthe, s_ext, graph_to_dfsc_ori, param)))
                 {
                     ret = true;
@@ -1709,7 +1863,7 @@ namespace gSpan
     bool fail_early_termination(const et_param<SubgraphsOfOneGraph>* param)
     {
         if (param->ec_ext->is_forward())
-        {
+        {          
             for (const SBG* s = param->sg_ext->first_all(); s; s = s->next_embedding())
                 if (exist_path_minimum(s, param))
                     return true;
@@ -1747,9 +1901,9 @@ namespace gSpan
     
 
 
-    template<class SG, class Compare>
+    template<class SG, class SGNode>
     void detect_et(FrameState<SG>* frame, SharedData* shared,
-                   SetNode<EdgeCode, SG, Compare>& ext_sg,
+                   const SGNode& ext_sg,
                    bool equiv, ExtType exttype)
     {
 #ifdef CHECK_MODE
@@ -1790,8 +1944,8 @@ namespace gSpan
 
 
 
-    template<class SG, class Compare>
-    void detect_nc(FrameState<SG>* frame, const SetNode<EdgeCode, SG, Compare>& ext_sg, bool equiv, ExtType exttype)
+    template<class SG, class SGNode>
+    void detect_nc(FrameState<SG>* frame, const SGNode& ext_sg, bool equiv, ExtType exttype)
     {
         if (frame->closed && (equiv || ext_sg.support() == frame->sg->support()))
         {
@@ -1822,6 +1976,8 @@ namespace gSpan
         
         enumerate(&frame, shared);
         remove_not_frequents(frame.r_edges, shared->minsup_);
+
+        br = frame.id == 2;
 
         for (XEIter it = frame.x_edges.begin(); it != frame.x_edges.end(); ++it)
         {
@@ -1888,9 +2044,9 @@ namespace gSpan
     }
 
     template<class SG>
-    void run(SharedData* shared, Extension<SG, EdgeCodeCmpDfs>& r_edges)
+    void run(SharedData* shared, Extension<SET, SG, EdgeCodeCmpDfs>& r_edges)
     {
-        for (typename Extension<SG, EdgeCodeCmpDfs>::iterator i = r_edges.begin(); i != r_edges.end(); ++i)
+        for (typename Extension<SET, SG, EdgeCodeCmpDfs>::iterator i = r_edges.begin(); i != r_edges.end(); ++i)
         {
             SG& sg = *i;
             if (sg.support() >= shared->minsup_)
@@ -1908,7 +2064,7 @@ namespace gSpan
                     int max_trace_depth)
     {
         SharedData shared(minsup, graph.num_vertices(), graph.num_edges(), result, max_trace_depth);
-        Extension<SubgraphsOfOneGraph, EdgeCodeCmpDfs> r_edges(&shared.sbg_creator);
+        Extension<SET, SubgraphsOfOneGraph, EdgeCodeCmpDfs> r_edges(&shared.sbg_creator);
         enum_one_edges(r_edges, graph);
         run(&shared, r_edges);
     }
@@ -1927,7 +2083,7 @@ namespace gSpan
         }
         
         SharedData shared(minsup, max_num_vertices, max_num_edges, result, max_trace_depth);
-        Extension<SubgraphsOfManyGraph, EdgeCodeCmpDfs> r_edges(&shared.sbg_creator);
+        Extension<SET, SubgraphsOfManyGraph, EdgeCodeCmpDfs> r_edges(&shared.sbg_creator);
         for (std::vector<const Graph*>::const_iterator i = graphs.begin(); i != graphs.end(); ++i)
             enum_one_edges(r_edges, **i);
         run(&shared, r_edges);
