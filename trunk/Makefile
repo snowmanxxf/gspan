@@ -15,6 +15,7 @@ CFLAGS += -DGSPAN_TRACE
 #CFLAGS += -DNDEBUG
 #CFLAGS += -DTYPE_CHECK
 CFLAGS += -DUSE_ASM
+#CFLAGS += -DET_TEST_PATH_MIN
 
 # test programm
 closegraph: main.cpp misc.hpp read_input.cpp gspan.hpp libgspan.a

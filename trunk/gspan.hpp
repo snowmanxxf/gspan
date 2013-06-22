@@ -170,9 +170,8 @@ namespace gSpan
     // *****************************************************************************
     class RMPath : private boost::noncopyable
     {
-        typedef std::vector<int, STL_Allocator<int> >	RMPath_I_EdgeCode;
+        typedef std::vector<int, STL_Allocator<int> > RMPath_I_EdgeCode;
         typedef std::vector<DfscVI, STL_Allocator<DfscVI> >	DfscVI_Vertices;
-
         RMPath_I_EdgeCode       rmpath_i_ec_;
         DfscVI_Vertices         dfsc_vertices_;
         std::size_t             n_rmp_;
