@@ -6,7 +6,7 @@ use warnings;
 my $html_image_dir = "images";
 my $html_file = "frequent_graphs.html";
 
-my $CLOSEGRAPH_CMD="closegraph2";
+my $CLOSEGRAPH_CMD="closegraph";
 
 # my $lab_inner_circle = "^1";
 
@@ -46,7 +46,7 @@ sub process_file
 		    # 	}
 		    # }
 
-		    $dot_codes{$graph_id} = $dot_codes{$graph_id} . "};\n\n";
+		    $dot_codes{$graph_id} = $dot_codes{$graph_id} . "} \n\n";
 		}
 
 		$nedges = 0;
@@ -99,7 +99,7 @@ sub process_file
 
     $comments{$graph_id} = $comments{$graph_id} . "#nedges=" . $nedges if ($nedges > 0);
 
-    $dot_codes{$graph_id} = $dot_codes{$graph_id} . "};\n\n" if ($num_graphs > 0);
+    $dot_codes{$graph_id} = $dot_codes{$graph_id} . "} \n\n" if ($num_graphs > 0);
     close(FILE);
     
     #while (($graph_id, $dot) = each (sort keys %dot_codes))
@@ -110,7 +110,7 @@ sub process_file
 	print DOT_FILE $dot;
 	close DOT_FILE;
 	my $result_file = "$html_image_dir/" . "$img_prefix" . "$graph_id.png";
-	system("echo -n make file: $result_file ... ; neato -Tpng -o $result_file /tmp/dotfile && echo ' done'; rm -f /tmp/dotfile");
+	system("echo -n make file: $result_file ... ; neato -Tpng -o $result_file /tmp/dotfile && echo ' done'; ");
 
 	print HTML_FILE "<object data=\"$result_file\" type=\"image/png\"> </object>\n";
 	print HTML_FILE "<br>" . "graph " . $graph_id . "<br />\n";
