@@ -204,8 +204,10 @@ namespace gSpan
 
         // preferable for internal use
         template<class ECode>
-        void push_edge(const ECode& ec) { push_edge(ec.vi_src(), ec.vi_dst(), ec.vl_src(), ec.vl_dst(), ec.el()); }
-        void push_edge(DfscVI src, DfscVI dst, VL srclab, VL dstlab, EL elab);
+        GraphEI push_edge(const ECode& ec)
+            { return push_edge(ec.vi_src(), ec.vi_dst(), ec.vl_src(), ec.vl_dst(), ec.el()); }
+
+        GraphEI push_edge(DfscVI src, DfscVI dst, VL srclab, VL dstlab, EL elab);
         void pop_edge();
     private:
         std::size_t num_vertices_;

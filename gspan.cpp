@@ -2,6 +2,7 @@
 
 #include <list>
 #include <algorithm>
+#include <map>
 #include <climits>
 #include <cstring>
 
@@ -87,9 +88,6 @@ namespace gSpan
     // *****************************************************************************
     bool EdgeCodeCmpDfs::operator() (const EdgeCode& ec1, const EdgeCode& ec2) const
     {
-        assert(is_aligned(&ec1));
-        assert(is_aligned(&ec2));
-
         bool ec1_f = ec1.is_forward();
         bool ec2_f = ec2.is_forward();
 
@@ -128,42 +126,6 @@ namespace gSpan
     // *****************************************************************************
     bool EdgeCodeCmpLex::operator() (const EdgeCode& ec1, const EdgeCode& ec2) const
     {
-        assert(is_aligned(&ec1));
-        assert(is_aligned(&ec2));
-
-#if defined(USE_ASM)
-#if defined(__x86_64__)
-        // 64 bit
-        uint8_t res;
-        asm (
-            "movq 0(%1), %%rax\n\t"
-            "subq 0(%2), %%rax\n\t"
-            "movl 8(%1), %%eax\n\t"
-            "sbbl 8(%2), %%eax\n\t"
-            "setc %0"
-            : "=r" (res)
-            : "r" (ec1.x_), "r" (ec2.x_)
-            : "rax"
-            );
-        return res;
-#else
-        // 32 bit
-        uint8_t res;
-        asm (
-            "movl 0(%1), %%eax\n\t"
-            "subl 0(%2), %%eax\n\t"
-            "movl 4(%1), %%eax\n\t"
-            "sbbl 4(%2), %%eax\n\t"
-            "movl 8(%1), %%eax\n\t"
-            "sbbl 8(%2), %%eax\n\t"
-            "setc %0"
-            : "=r" (res)
-            : "r" (ec1.x_), "r" (ec2.x_)
-            : "eax"
-            );
-        return res;
-#endif
-#else
         if (ec1.vi_src() < ec2.vi_src())
             return true;
         if (ec1.vi_src() > ec2.vi_src())
@@ -184,7 +146,6 @@ namespace gSpan
             return true;
         else
             return false;
-#endif
     }
 
     // *****************************************************************************
@@ -683,7 +644,6 @@ namespace gSpan
             if (*sbg == *s)
             {
                 SBG::insert_to_automorph_list(sbg, s);
-                //au = true;
                 break;
             }
             sbg = sbg->next_automorph_group();
@@ -1087,6 +1047,8 @@ namespace gSpan
         GspanResult* result_;
  
         bool flg;
+        std::map<const Graph*, bool> whole_was_reached;
+
 #ifdef GSPAN_TRACE
         unsigned int max_trace_depth_;
 #endif
@@ -2030,6 +1992,33 @@ namespace gSpan
     }
 
 
+    bool detect_et_2(SharedData* shared, FrameState<SubgraphsOfOneGraph>* frame)
+    {
+        bool& whole_was_reached = shared->whole_was_reached[frame->sg->get_graph()];
+        if (! whole_was_reached)
+        {
+            whole_was_reached = frame->x_edges.empty() && frame->r_edges.empty();
+            if (whole_was_reached)
+                assert(frame->sg->support() == 1);
+        }
+        
+        return whole_was_reached && frame->sg->support() == 1;
+    }
+
+
+    bool detect_et_2(SharedData* shared, FrameState<SubgraphsOfManyGraph>* frame)
+    {
+        if (frame->sg->support() == 1)            
+        {
+            bool& whole_was_reached = shared->whole_was_reached[frame->sg->begin()->get_graph()];
+            if (whole_was_reached)
+                return true;
+            else
+                whole_was_reached = frame->x_edges.empty() && frame->r_edges.empty();
+        }
+        return false;
+    }
+
 
     template<class SG>
     void project(SharedData* shared, FrameState<SG>* parent_frame, SG* sg_parent)
@@ -2101,10 +2090,7 @@ namespace gSpan
         trace_frame(&frame, shared);
         result(&frame, shared);
 
-        if (!shared->flg && frame.x_edges.empty() && frame.r_edges.empty() && frame.closed)
-            shared->flg = true;
-        
-        if (shared->flg && frame.sg->support() == 1)
+        if (detect_et_2(shared, &frame))
             return;
 
         typedef typename RChildren::iterator ChIter;

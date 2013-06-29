@@ -1,27 +1,14 @@
 #ifndef MISC_H_
 #define MISC_H_
 
+#include "read_input.hpp"
+
 #include "gspan.hpp"
 #include <vector>
 #include <map>
 #include <list>
 #include <cstring>
 
-struct InputGraph
-{
-    std::string name;
-    std::map<int, std::string> vl;
-
-    struct E
-    {
-	int from, to;
-	std::string el;
-    };
-
-    std::vector<E> edges;
-};
-
-void read_input(std::list<InputGraph>& igl, std::istream& is);
 
 void relabel(std::vector<std::string>& i_to_str,
 	     std::map<std::string, int>& str_to_i,
