@@ -225,40 +225,6 @@ int main(int argc, char** argv)
     using namespace gSpan;
     using namespace std;
 
-/*
-    MemAllocator ma; int S = 38;
-    Bitset bs (&ma, S);
-
-    print(std::cerr, bs, S); std::cerr << std::endl;
-
-    bs.set(0, S);
-    print(std::cerr, bs, S);
-    std::cerr << " " << bs.bit_.field << std::endl;
-
-    bs.set(1, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
-    bs.set(6, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
-    bs.set(35, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
-    bs.set(8, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
-    bs.set(15, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
-    bs.set(36, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
-    bs.set(31, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
-    bs.set(11, S); print(std::cerr, bs, S); std::cerr << " " << bs.bit_.field << std::endl;
-
-    return 0;
-
-
-    std::cerr << "SBG size=" << sizeof(SBG) << std::endl;
-
-    EdgeCode ec1(1, 2, 0, 2, 2, true);
-    EdgeCode ec2(1, 3, 0, 2, 0, true);
-    EdgeCodeCmpLex lex;
-    if (lex(ec1,ec2))
-        cout << "less\n";
-    else
-        cout << "NOT less\n";
-    
-    return 0;
-*/
     // ------------------------------------------
     // parse arguments
     // ------------------------------------------

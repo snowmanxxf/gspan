@@ -1,25 +1,25 @@
 
-CFLAGS := -O3 -g -Wall -march=amdfam10 -save-temps #-fno-inline
+CXXFLAGS := -O3 -fPIC -g -Wall
 
-CFLAGS += -falign-loops -fprefetch-loop-arrays -freg-struct-return
-CFLAGS += -fschedule-insns -fsched-pressure
+CXXFLAGS += -falign-loops -fprefetch-loop-arrays -freg-struct-return
+CXXFLAGS += -fschedule-insns -fsched-pressure
 
-#CFLAGS +=  -fprofile-generate
-#CFLAGS +=  -fprofile-use
+#CXXFLAGS +=  -fprofile-generate
+#CXXFLAGS +=  -fprofile-use
 
-CFLAGS += -DDEBUG_CHECK_GRAPH_LABEL 
-CFLAGS += -DGSPAN_WITH_STATISTICS
-CFLAGS += -DGSPAN_TRACE
-#CFLAGS += -DCHECK_MODE
-#CFLAGS += -DWITH_CHECKS
-#CFLAGS += -DNDEBUG
-#CFLAGS += -DTYPE_CHECK
-CFLAGS += -DUSE_ASM
-#CFLAGS += -DET_TEST_PATH_MIN
+CXXFLAGS += -DDEBUG_CHECK_GRAPH_LABEL 
+CXXFLAGS += -DGSPAN_WITH_STATISTICS
+CXXFLAGS += -DGSPAN_TRACE
+#CXXFLAGS += -DCHECK_MODE
+#CXXFLAGS += -DWITH_CHECKS
+#CXXFLAGS += -DNDEBUG
+#CXXFLAGS += -DTYPE_CHECK
+CXXFLAGS += -DUSE_ASM
+#CXXFLAGS += -DET_TEST_PATH_MIN
 
-# test programm
-closegraph: main.cpp misc.hpp read_input.cpp gspan.hpp libgspan.a
-	g++ ${CFLAGS} main.cpp read_input.cpp -L. -lgspan -o closegraph
+# test programms
+closegraph: main.cpp read_input.cpp misc.hpp misc.cpp gspan.hpp libgspan.a
+	g++ ${CXXFLAGS} main.cpp read_input.cpp misc.cpp -L. -lgspan -o closegraph
 
 
 # gspan static library
@@ -27,13 +27,13 @@ libgspan.a: gspan.o gspan_graph.o gspan_allocator.o
 	ar rcs libgspan.a gspan.o gspan_graph.o gspan_allocator.o
 
 gspan.o: gspan.cpp gspan.hpp gspan_graph.o gspan_allocator.o
-	g++ ${CFLAGS} -c gspan.cpp -o gspan.o
+	g++ ${CXXFLAGS} -c gspan.cpp -o gspan.o
 
 gspan_graph.o: gspan_graph.hpp gspan_graph.cpp
-	g++ $(CFLAGS) -c gspan_graph.cpp -o gspan_graph.o
+	g++ $(CXXFLAGS) -c gspan_graph.cpp -o gspan_graph.o
 
 gspan_allocator.o: gspan_allocator.hpp gspan_allocator.cpp
-	g++ ${CFLAGS} -c gspan_allocator.cpp -o gspan_allocator.o
+	g++ ${CXXFLAGS} -c gspan_allocator.cpp -o gspan_allocator.o
 
 VALGRIND_FILES := cachegrind.out.* callgrind.out.* massif.out.*
 

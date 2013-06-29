@@ -60,12 +60,12 @@ namespace gSpan
         delete[] vertices_;
     }
 
-    void Graph::push_edge(DfscVI src, DfscVI dst, VL srclab, VL dstlab, EL elab)
+    GraphEI Graph::push_edge(DfscVI src, DfscVI dst, VL srclab, VL dstlab, EL elab)
     {
         assert(src != VI_NULL);
         assert(dst != VI_NULL);
 
-	GraphEI eid = num_edges_;
+	const GraphEI eid = num_edges_;
 
 	Edge* edge1 = new (edge_allocator_.allocate()) Edge(eid, GraphVI(src), GraphVI(dst), srclab, dstlab, elab);
 	Edge* edge2 = new (edge_allocator_.allocate()) Edge(eid, GraphVI(dst), GraphVI(src), dstlab, srclab, elab);
@@ -86,6 +86,8 @@ namespace gSpan
         std::size_t max_vi = std::max(src, dst);
         if (num_vertices_ < max_vi + 1)
             num_vertices_ = max_vi + 1;
+
+        return eid;
     }
 
 

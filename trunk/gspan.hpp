@@ -42,64 +42,12 @@ namespace gSpan
     class EdgeCode
     {
         friend struct EdgeCodeCmpLex;
-#if defined(USE_ASM)
-        /* for little-endian
-         * +-----------------+-----------------+-----------------+
-         * |                 |                 |                 |
-         * 0        2        4        6        8        10       |
-         * +--------+--------+--------+--------+--------+--------+
-         * |        |        |        |        |        |        |
-         * |  ZERO  |VL_DST_I|  EL_I  |VL_SRC_I|VI_DST_I|VI_SRC_I|
-         * +--------+--------+--------+--------+--------+--------+
-         *
-         * for big-endian (logical sense of that)
-         * +-----------------+-----------------+-----------------+
-         * |                 |                 |                 |
-         * 0        2        4        6        8        10       |
-         * +--------+--------+--------+--------+--------+--------+
-         * |        |        |        |        |        |        |
-         * |VI_SRC_I|VI_DST_I|VL_SRC_I|  EL_I  |VL_DST_I|  ZERO  |
-         * +--------+--------+--------+--------+--------+--------+
-         */
-        enum { ZERO, VL_DST_I, EL_I, VL_SRC_I, VI_DST_I, VI_SRC_I };
-        uint16_t x_[6];
-#else
         DfscVI vi_src_, vi_dst_;
         VL vl_src_, vl_dst_;
         EL el_;
-#endif
         bool is_fwd_;
 
     public:
-
-#if defined(USE_ASM)
-        EdgeCode()
-            :is_fwd_(false)
-            {
-                assert(is_aligned(this));
-                x_[VI_SRC_I] = x_[VI_DST_I] = VI_NULL;
-                x_[VL_SRC_I] = x_[VL_DST_I] = VL_NULL;
-                x_[EL_I] = EL_NULL;
-                x_[ZERO] = 0U;
-            }
-
-        EdgeCode(DfscVI vi_src, DfscVI vi_dst, VL vl_src, EL el, VL vl_dst, bool fwd)
-            :is_fwd_(fwd)
-            {
-                assert(is_aligned(this));
-                x_[VI_SRC_I] = vi_src; x_[VI_DST_I] = vi_dst;
-                x_[VL_SRC_I] = vl_src; x_[VL_DST_I] = vl_dst;
-                x_[EL_I] = el;
-                x_[ZERO] = 0U;
-            }
-
-        DfscVI vi_src() const   { return x_[VI_SRC_I]; }
-        DfscVI vi_dst() const   { return x_[VI_DST_I]; }
-        VL vl_src() const       { return x_[VL_SRC_I]; }
-        VL vl_dst() const       { return x_[VL_DST_I]; }
-        EL el() const           { return x_[EL_I]; }
-        void chgdir() { std::swap(x_[VI_SRC_I], x_[VI_DST_I]); std::swap(x_[VL_SRC_I], x_[VL_DST_I]); }
-#else
         EdgeCode()
             :vi_src_(VI_NULL), vi_dst_(VI_NULL),
              vl_src_(VL_NULL), vl_dst_(VL_NULL), el_(EL_NULL),
@@ -117,8 +65,6 @@ namespace gSpan
         VL vl_dst() const       { return vl_dst_; }
         EL el() const           { return el_; }
         void chgdir() { std::swap(vi_src_, vi_dst_); std::swap(vl_src_, vl_dst_); }
-#endif
-
         bool is_forward() const         { return is_fwd_; }
         bool is_backward() const        { return !is_fwd_; }
         EdgeCode operator- () const { EdgeCode ec(*this); ec.chgdir(); return ec; }
