@@ -1974,6 +1974,34 @@ namespace gSpan
     }
 
 
+
+    bool detect_et_2(SharedData* shared, FrameState<SubgraphsOfOneGraph>* frame)
+    {
+        bool& whole_was_reached = shared->whole_was_reached[frame->sg->get_graph()];
+        if (! whole_was_reached)
+        {
+            whole_was_reached = frame->x_edges.empty() && frame->r_edges.empty();
+            if (whole_was_reached)
+                assert(frame->sg->support() == 1);
+        }        
+        return whole_was_reached && frame->sg->support() == 1;
+    }
+
+
+
+    bool detect_et_2(SharedData* shared, FrameState<SubgraphsOfManyGraph>* frame)
+    {
+        if (frame->sg->support() == 1)
+        {
+            bool& whole_was_reached = shared->whole_was_reached[frame->sg->begin()->get_graph()];
+            if (whole_was_reached)
+                return true;
+            else
+                whole_was_reached = frame->x_edges.empty() && frame->r_edges.empty();
+        }
+        return false;
+    }
+
     // -----------------------------------
 
 
@@ -1989,34 +2017,6 @@ namespace gSpan
             frame->ec_notclose = &ext_sg.get_key();
             frame->sg_ext_notclose = &ext_sg;
         }
-    }
-
-
-    bool detect_et_2(SharedData* shared, FrameState<SubgraphsOfOneGraph>* frame)
-    {
-        bool& whole_was_reached = shared->whole_was_reached[frame->sg->get_graph()];
-        if (! whole_was_reached)
-        {
-            whole_was_reached = frame->x_edges.empty() && frame->r_edges.empty();
-            if (whole_was_reached)
-                assert(frame->sg->support() == 1);
-        }
-        
-        return whole_was_reached && frame->sg->support() == 1;
-    }
-
-
-    bool detect_et_2(SharedData* shared, FrameState<SubgraphsOfManyGraph>* frame)
-    {
-        if (frame->sg->support() == 1)            
-        {
-            bool& whole_was_reached = shared->whole_was_reached[frame->sg->begin()->get_graph()];
-            if (whole_was_reached)
-                return true;
-            else
-                whole_was_reached = frame->x_edges.empty() && frame->r_edges.empty();
-        }
-        return false;
     }
 
 
@@ -2151,5 +2151,75 @@ namespace gSpan
         for (std::vector<const Graph*>::const_iterator i = graphs.begin(); i != graphs.end(); ++i)
             enum_one_edges(r_edges, **i);
         run(&shared, r_edges);
+    }
+
+
+
+
+    void closegraph(const Graph* array, std::size_t size,
+                    support_type minsup, GspanResult* result, int max_trace_depth)
+    {
+        if (size > 1)
+        {
+
+            std::size_t max_num_vertices = 0;
+            std::size_t max_num_edges = 0;
+
+            for (std::size_t i = 0; i < size; ++i)
+            {
+                const Graph* g = array + i;
+                max_num_vertices    = std::max(max_num_vertices, g->num_vertices());
+                max_num_edges       = std::max(max_num_edges, g->num_vertices());
+            }
+        
+            SharedData shared(minsup, max_num_vertices, max_num_edges, result, max_trace_depth);
+            Extension<SET, SubgraphsOfManyGraph, EdgeCodeCmpDfs> r_edges(&shared.sbg_creator);
+
+            for (std::size_t i = 0; i < size; ++i)
+                enum_one_edges(r_edges, array[i]);
+            run(&shared, r_edges);
+        }
+        else
+        {
+            const Graph& graph = *array;
+            SharedData shared(minsup, graph.num_vertices(), graph.num_edges(), result, max_trace_depth);
+            Extension<SET, SubgraphsOfOneGraph, EdgeCodeCmpDfs> r_edges(&shared.sbg_creator);
+            enum_one_edges(r_edges, graph);
+            run(&shared, r_edges);
+        }
+    }
+
+
+    void closegraph(const Graph* const * ptr_array, std::size_t size,
+                    support_type minsup, GspanResult* result, int max_trace_depth)
+    {
+        if (size > 1)
+        {
+
+            std::size_t max_num_vertices = 0;
+            std::size_t max_num_edges = 0;
+
+            for (std::size_t i = 0; i < size; ++i)
+            {
+                const Graph* g = ptr_array[i];
+                max_num_vertices    = std::max(max_num_vertices, g->num_vertices());
+                max_num_edges       = std::max(max_num_edges, g->num_vertices());
+            }
+        
+            SharedData shared(minsup, max_num_vertices, max_num_edges, result, max_trace_depth);
+            Extension<SET, SubgraphsOfManyGraph, EdgeCodeCmpDfs> r_edges(&shared.sbg_creator);
+
+            for (std::size_t i = 0; i < size; ++i)
+                enum_one_edges(r_edges, *ptr_array[i]);
+            run(&shared, r_edges);
+        }
+        else
+        {
+            const Graph& graph = **ptr_array;
+            SharedData shared(minsup, graph.num_vertices(), graph.num_edges(), result, max_trace_depth);
+            Extension<SET, SubgraphsOfOneGraph, EdgeCodeCmpDfs> r_edges(&shared.sbg_creator);
+            enum_one_edges(r_edges, graph);
+            run(&shared, r_edges);
+        }
     }
 }

@@ -17,7 +17,11 @@ CXXFLAGS += -DGSPAN_TRACE
 CXXFLAGS += -DUSE_ASM
 #CXXFLAGS += -DET_TEST_PATH_MIN
 
+
 # test programms
+closegraph_lemon: main_lemon.cpp gspan_lemon.hpp intlabelmap.hpp libgspan.a
+	g++ ${CXXFLAGS} main_lemon.cpp -L. -lgspan -lemon -o closegraph_lemon
+
 closegraph: main.cpp read_input.cpp misc.hpp misc.cpp gspan.hpp libgspan.a
 	g++ ${CXXFLAGS} main.cpp read_input.cpp misc.cpp -L. -lgspan -o closegraph
 

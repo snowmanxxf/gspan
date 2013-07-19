@@ -87,7 +87,8 @@ void create_working_graphs(WorkingGraphs& wrk_graphs,
 
 	int corr = ig.vl.begin()->first == 1;
 	
-        std::vector<gSpan::EdgeCode> eclist;
+	gSpan::Graph* graph = new gSpan::Graph(ig.vl.size(), ig.edges.size());
+
 	for (std::vector<InputGraph::E>::const_iterator i = ig.edges.begin(); i != ig.edges.end(); ++i)
 	{
 	    typedef std::map<std::string, int>::const_iterator I;
@@ -106,11 +107,11 @@ void create_working_graphs(WorkingGraphs& wrk_graphs,
 	    
 	    bool fwd = (i->from - corr) < (i->to - corr);
 	    gSpan::EdgeCode ec(i->from - corr, i->to - corr, vl_from_i, el_i, vl_to_i, fwd);
-	    eclist.push_back(ec);
+	    
+            graph->push_edge(ec);
 	}
-
-	gSpan::Graph* graph = new gSpan::Graph(eclist.begin(), eclist.end());
-
+        
+        
 	wrk_graphs.names[graph] = ig.name;
 	wrk_graphs.graphs.push_back(graph);
     }
