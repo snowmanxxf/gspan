@@ -159,20 +159,6 @@ namespace gSpan
     public:
         typedef detail::Edge Edge;
 
-        // preferable for transactional graph creation
-        template<class EdgeCodeIterator>
-        Graph(EdgeCodeIterator it, const EdgeCodeIterator it_end)
-            :num_vertices_(calc_num_vertices(it, it_end)),
-             num_edges_(0),
-             max_num_edges_(std::distance(it, it_end)),
-             vertices_(new IncidEdges[num_vertices_]),
-             history_(new Record[std::distance(it, it_end)]),
-             edge_allocator_(sizeof(detail::Edge))
-            {
-                while (it != it_end) push_edge(*it++);
-            }
-
-        // preferable for internal use
         Graph(std::size_t max_num_vertices, std::size_t max_num_edges)
             :num_vertices_(0),
              num_edges_(0),
@@ -183,7 +169,25 @@ namespace gSpan
             {
             }
 
+        Graph()
+            :num_vertices_(0),
+             num_edges_(0),
+             max_num_edges_(0),
+             vertices_(0),
+             history_(0),
+             edge_allocator_(sizeof(detail::Edge))
+            {
+            }
+
         ~Graph();
+
+        void init(std::size_t max_num_vertices, std::size_t max_num_edges)
+            {
+                max_num_edges_ = max_num_edges;
+                vertices_ = new IncidEdges[max_num_vertices];
+                history_ = new Record[max_num_edges];
+            }
+
 
         std::size_t num_vertices() const        { return num_vertices_; }
         std::size_t num_edges() const           { return num_edges_; }
@@ -201,8 +205,6 @@ namespace gSpan
         // return pointer to first edge in the list
         const Edge* incident(GraphVI vi) const  { return vertices_[vi].adj_list(); }
 
-
-        // preferable for internal use
         template<class ECode>
         GraphEI push_edge(const ECode& ec)
             { return push_edge(ec.vi_src(), ec.vi_dst(), ec.vl_src(), ec.vl_dst(), ec.el()); }
@@ -212,7 +214,7 @@ namespace gSpan
     private:
         std::size_t num_vertices_;
         std::size_t num_edges_;
-        const std::size_t max_num_edges_;
+        std::size_t max_num_edges_;
 
         class IncidEdges
         {

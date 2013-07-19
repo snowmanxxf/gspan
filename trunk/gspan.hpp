@@ -356,7 +356,7 @@ namespace gSpan
 	const GraphVI* get_dfsc_to_graph_v() const { return vi_dfsc_to_graph_; }
 
 	/*
-	 * vertices and edge number formed subgraph
+	 * vertices number formed subgraph
 	 */
 	std::size_t num_vertices() const	{ return num_vertices_; }
 
@@ -737,6 +737,13 @@ namespace gSpan
 
     void closegraph(const Graph& graph,               support_type minsup, GspanResult* result, int max_trace_depth = 0);
     void closegraph(const std::vector<const Graph*>&, support_type minsup, GspanResult* result, int max_trace_depth = 0);
+
+    void closegraph(const Graph* array, std::size_t size,
+                    support_type minsup, GspanResult* result, int max_trace_depth = 0);
+
+    
+    void closegraph(const Graph* const * ptr_array, std::size_t size,
+                    support_type minsup, GspanResult* result, int max_trace_depth = 0);
 
 }
 
